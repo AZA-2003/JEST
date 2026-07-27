@@ -171,7 +171,7 @@ def uncertainty_score(jplace_path,dest_path, normalize=True,
 measures distance between placement and ground truth
 either via edge error or by branch length on a reference tree
 '''
-def error(jplace_path: str, dest_path: str,
+def placement_error(jplace_path: str, dest_path: str,
         ground_truth: str, ref_tree_path: str, metric: str):
     
     NaN = float("nan")
@@ -237,9 +237,9 @@ def error(jplace_path: str, dest_path: str,
             read_id = placement["n"][0]
             if True: #for now..
                 if len(placement["p"]) == 0:
-                     print(
+                    print(
                             f"{sys.argv[2]}\t{rid}\tNaN\tNaN\tNaN\tNaN"
-                            )
+                        )
                     continue
                 for p_idx in range(len(placement['p'])):
                     ixe = placement_tree.find("{" + f"{placement['p'][idx][0]}" + "}")
@@ -262,7 +262,7 @@ def error(jplace_path: str, dest_path: str,
                             branch_length = distance_between(ground_truth_node, lbl_to_nd[lbl_placement])
                     f.write(f"{read_id}\t{ground_truth}\t{lbl_placement}\t{round(likelihood,6)}\t{edge_error}\t{round(branch_length,6)}")
 
-
+'''
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input","-i",type=str,required=True)
@@ -285,3 +285,4 @@ if __name__ == "__main__":
     normalize = args.normalize
     #uncertainty_score(input_jplace,output,tree)
     uncertainty_score(input_jplace,output,trials=random_trials,random_placements=random_placements,rooted=rooted, normalize=normalize)
+'''
