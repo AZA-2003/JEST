@@ -2,7 +2,7 @@
 .eggs/
 eggs/
 *.egg
-*.egg-info
+*.egg-info/
 dist/
 build/
 lib/
