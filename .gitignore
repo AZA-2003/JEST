@@ -2,9 +2,10 @@
 .eggs/
 eggs/
 *.egg
-*.egg-info/
+*.egg-info
 dist/
 build/
+lib/
 # archives
 /JEST/archives/
 # compiled objects
