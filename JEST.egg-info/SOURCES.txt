@@ -1,9 +1,15 @@
+MANIFEST.in
 README.md
 setup.py
+JEST/CTree_test.py
+JEST/JEST.py
+JEST/JEST_direc.py
+JEST/JEST_file.py
+JEST/_CTree.so
 JEST/__init__.py
-JEST/draft.py
+JEST/utils.py
 JEST.egg-info/PKG-INFO
 JEST.egg-info/SOURCES.txt
 JEST.egg-info/dependency_links.txt
-JEST.egg-info/requires.txt
+JEST.egg-info/not-zip-safe
 JEST.egg-info/top_level.txt

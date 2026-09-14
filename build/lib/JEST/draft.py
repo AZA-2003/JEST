@@ -1,56 +1,12 @@
-import os
-import errno
-import sys
 import treeswift as ts
-import gzip
 import json
 import re
 import argparse
 import numpy as np
 from scipy import stats
-
-
-NO_FIELDS = "WARNING: No fields descriptor found in jplace, now resorting to default jplace format"
-ERROR_FILTER = "ERROR: Filter percentile must be between 0 and 1 (choose -1 if you want no filter)!"
-ERROR_RANDOM = "ERROR: Random placement parameters must be non-zero positive integers!"
-ERROR_METRIC = "ERROR: Metric must either be 'edge error', 'branch length' or 'both'!"
-
-
-def label_internal_nodes(tree_str):
-    ref_str = tree_str[:]
-    idx = 0
-    while True:
-        tree_str = ref_str.replace("):",f")E{idx}:",1)
-        if tree_str == ref_str:
-            break
-        ref_str = tree_str[:]
-        idx += 1
-    tree_str = ref_str.replace(");",f")E{idx};",1)
-    return tree_str
-    '''
-    idx = 0
-    for node in tree.traverse_internal():
-        node.label = "E"+str(idx)
-        idx += 1
-    return tree
-    '''
-
-'''
-takes in a path for jplace and returns a dictionary
-works on both zipped and unzipped jplace files
-'''
-def read_jplace(jplace_path):
-    try:
-        f_name = jplace_path.split("/")[-1]
-        if ".gz"in f_name:
-            with gzip.open(jplace_path,"rt") as f:
-                jd = json.load(f)
-        else:
-            with open(jplace_path,"r") as f:
-                jd = json.load(f)
-        return jd
-    except FileNotFoundError as E:
-        raise E(errno.ENOENT, os.strerror(errno.ENOENT), jplace_path)
+from .utils import read_jplace, label_internal_nodes, ERROR_FILTER, ERROR_RANDOM
+## temp imports to get some metrics
+import time
 '''
 Generates a number of trials where random placements are made
 '''
@@ -67,7 +23,8 @@ def random_placement_score(tree, trials, random_placements,
         node_placements = [lbl_to_node[p] for p in placements]
         ref_distance = [np.abs(tree.distance_between(p,ref_placement)) for p in node_placements]
         uncertainties.append(sum(ref_distance)/random_placements)
-    norm_uncertainties = np.array(uncertainties) / (sum(uncertainties)/trials)
+    mean,std = np.mean(uncertainties), np.std(uncertainties)
+    norm_uncertainties = (np.array(uncertainties) - mean) / (std + 1e-8)
     if alpha != -1:
         filter_threshold = np.percentile(norm_uncertainties,alpha*100)
         if verbose:
@@ -76,13 +33,16 @@ def random_placement_score(tree, trials, random_placements,
         filter_threshold = np.inf
     ## Added a verbose feature to print out stats
     if verbose:
+        print("### Normalized stats ###")
         print(f"1 percentile is {np.percentile(norm_uncertainties,1)}")
         #print(f"0.1 percentile is {np.percentile(norm_uncertainties,0.1)}")
         print(f"25 percentile is {np.percentile(norm_uncertainties,25)}")
         print(f"50 percentile is {np.percentile(norm_uncertainties,50)}")
         print(f"75 percentile is {np.percentile(norm_uncertainties,75)}")
         print(f"90 percentile is {np.percentile(norm_uncertainties,90)}")
-        print(f"mean of random distribution is {(sum(uncertainties)/trials)}")
+        print("### Normalizing factors ###")
+        print(f"mean of random distribution is {mean}")
+        print(f"standard deviation of random distribution is {std}")
     #print(f"0.5 lies on {stats.percentileofscore(norm_uncertainties,0.5)} percentile")
     
     #norm_uncertainties = np.array(uncertainties)
@@ -90,7 +50,7 @@ def random_placement_score(tree, trials, random_placements,
     #norm_uncertainties /= np.median(uncertainties)
     #norm_uncertainties /= np.mean(uncertainties)
     
-    return norm_uncertainties, (sum(uncertainties)/trials), filter_threshold
+    return norm_uncertainties, mean, std, filter_threshold
 
 ## CREATE A MULTITHREADED VERSION OF uncertainty_score
 
@@ -123,13 +83,19 @@ def uncertainty_score(jplace_path : str, dest_path : str, alpha : float = -1.0,
         print("Error reading the tree!")
         exit()
     
-    normalizer = 1.0
+    mean = 0.0
+    std = 1.0
+    filtered_reads = []
     filter_threshold = np.inf
+    ###
+    begin = time.time()
+    ###
     if normalize:
-        random_pl,normalizer, filter_threshold = random_placement_score(tree, trials, random_placements, 
+        random_pl, mean, std, filter_threshold = random_placement_score(tree, trials, random_placements, 
                                                                     alpha, verbose)
-        #random_dist = stats.ecdf(random_pl)
-        #print(normalizer)
+    ###
+    print(f"Time taken for random placements {time.time() - begin} seconds")
+    ###
     try:
         fields = jd["fields"]
         edge_num = fields.index("edge_num")
@@ -139,8 +105,12 @@ def uncertainty_score(jplace_path : str, dest_path : str, alpha : float = -1.0,
         edge_num = 0
         l_ratio = 2
     lbl_to_node = tree.label_to_node("all")
+    ###
+    begin = time.time()
+    num_placements = len(jd["placements"])
+    ###
     with open(dest_path,"w") as f:
-        f.write(f"name\tuncertainty\tuncertainty_ratio\tpercentile\n")
+        f.write(f"name\tuncertainty\tuncertainty_ratio\tpercentile\tp-value\n")
         ## iterating over all queries
         #for placement in jd["placements"]:
         idx = 0
@@ -192,119 +162,30 @@ def uncertainty_score(jplace_path : str, dest_path : str, alpha : float = -1.0,
                 ref_distance = [np.abs(tree.distance_between(p,ref_placement)) for p in node_placements]
                 weighted_score = sum([p_l_ratio[i]*ref_distance[i] for i in range(len(p_l_ratio))])/(1-p_l_ratio[ref_placement_idx]) if p_l_ratio[ref_placement_idx] != 1.0 else 0.0
             
-            weighted_score_norm = weighted_score /normalizer
+            weighted_score_norm = (weighted_score - mean)/(std+1e-8)
             proportion = stats.percentileofscore(random_pl,weighted_score_norm)/100
-
+            pvalue = round(1-stats.norm.cdf(weighted_score_norm),4)
             f.write(
-                    f"{name}\t{weighted_score}\t{weighted_score_norm}\t{proportion}\n"
+                    f"{name}\t{weighted_score}\t{weighted_score_norm}\t{proportion}\t{pvalue}\n"
                     )
-            if proportion > filter_threshold:
+            #if proportion > filter_threshold:
+            if pvalue <= 1-alpha:
+                filtered_reads.append(name)
                 jd["placements"].pop(idx)
             else:
                 idx += 1
+    ###
+    end = time.time()
+    print(f"Time taken to produce unncertainty scores ({num_placements} placements): {end-begin} seconds")
+    print(f"Average time per placement: {(end-begin)/num_placements} seconds")
+    ###
     if alpha != -1:
         new_jplace_path = jplace_path.split(".jplace")[0]+f"_filtered_{alpha}.jplace"
         with open(new_jplace_path,"w") as fjplace:
             json.dump(jd, fjplace, indent=4)
-'''
-measures distance between placement and ground truth
-either via edge error or by branch length on a reference tree
-'''
-def placement_error(jplace_path: str, dest_path: str,
-        ground_truth: str, ref_tree_path: str, metric: str):
-    
-    NaN = float("nan")
-    try:
-        if metric not in ["edge error", "branch length", "both"]:
-            raise Exception(ERROR_METRIC)
-    except Exception as E:
-        print(f"Error with Argument Values: {E}")
-        exit()
-    '''
-    sub-function for distance calculation
-    '''
-    def get_distance(u,v):
-        if u == v:
-            return 0.0
-        elif u == v.parent:
-            return v.edge_length
-        elif v == u.parent:
-            return u.edge_length
-        u_dists = {u: 0.0}
-        v_dists = {v: 0.0}
-        ## u traversal upwards
-        c = u
-        p = u.parent  # u traversal
-        while p is not None:
-            u_dists[p] = u_dists[c]
-            if c.edge_length is not None:
-                u_dists[p] += c.edge_length #accumulate edge lengths from u during traversal
-            c = p
-            p = p.parent
-        ## case where v is simply an ancestor of u (parent of parent)
-        if v in u_dists:
-            return u_dists[v] - u_dists[u.parent]
-        ## v traversal upwards
-        c = v
-        p = v.parent  # v traversal
-        while p is not None:
-            v_dists[p] = v_dists[c]
-            if c.edge_length is not None:
-                v_dists[p] += c.edge_length #accumulate edge lengths from v during traversal
-            ## case where the ancestors of u and v meet 
-            if p in u_dists:
-                return u_dists[p] + v_dists[p] - u_dists[u.parent] - v_dists[v.parent]#distance from u to that ancestor + from v to that ancestor
-            c = p
-            p = p.parent
-
-
-    jd = read_jplace(jplace_path)
-    placement_tree = jd["tree"]
-
-    reference_tree = ts.read_tree_newick(ref_tree_path)
-    ground_truth_node = reference_tree.find_node(ground_truth, leaves=True, internal=True)
-    lbl_to_nd =  reference_tree.label_to_node("all")
-   
-    reference_tree_norm = ts.read_tree_newick(ref_tree_path)
-    ground_truth_node_norm = reference_tree.find_node(ground_truth, leaves=True, internal=True)
-    lbl_to_nd_norm =  reference_tree.label_to_node("all")
-
-    for nd in reference_tree_norm.traverse_postorder():
-        nd.set_edge_length(1)
-    with open(dest_path,"w") as f:
-        for placements in jd["placements"]:
-            edge_error = "-"
-            branch_length = "-"
-            read_id = placement["n"][0]
-            if True: #for now..
-                if len(placement["p"]) == 0:
-                    f.write(
-                            f"{sys.argv[2]}\t{rid}\tNaN\tNaN\tNaN\tNaN"
-                            )
-                    continue
-                for p_idx in range(len(placement['p'])):
-                    ixe = placement_tree.find("{" + f"{placement['p'][idx][0]}" + "}")
-                    ixs = max(
-                                (placement_tree[:ixe].rfind(","),
-                                placement_tree[:ixe].rfind("("),
-                                placement_tree[:ixe].rfind(")"),)
-                            )
-                    likelihood = float(placement['p'][p_idx][4])
-                    lbl_placement, blen = placement_tree[ixs + 1 : ixe].split(":")
-                    if metric in ["edge error","both"]:
-                        if lbl_placement == ground_truth:
-                            edge_error = 0.0
-                        else:
-                            edge_error = distance_between(ground_truth_node_norm, lbl_to_nd_norm[lbl_placement])
-                    if metric in ["branch length","both"]:
-                        if lbl_placement == ground_truth:
-                            branch_length = 0.0
-                        else:
-                            branch_length = distance_between(ground_truth_node, lbl_to_nd[lbl_placement])
-                    f.write(f"{read_id}\t{ground_truth}\t{lbl_placement}\t{round(likelihood,6)}\t{edge_error}\t{round(branch_length,6)}")
-
-
-
+        filtered_reads_path = jplace_path.split(".jplace")[0]+f"_filtered_{alpha}_reads.txt"
+        with open(filtered_reads_path,"w") as ftxt:
+            ftxt.write('\n'.join(filtered_reads))
 
 '''
 if __name__ == "__main__":

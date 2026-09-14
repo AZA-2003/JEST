@@ -1,0 +1,31 @@
+# distribution and packaging
+.eggs/
+eggs/
+*.egg
+*.egg-info/
+dist/
+build/
+# archives
+/JEST/archives/
+# compiled objects
+*.so
+*.o
+# input/output
+__pycache__/
+*.gz
+*.log
+*.nwk
+*.tre
+*.txt
+html
+latex
+*.bak
+# bash scripts
+#*.sh
+# SWIG objects
+JEST/cbinder/CTree_wrap.cxx
+JEST/cbinder/CTree.py
+#virtualenv and dotenv stuff
+.env
+.venv
+venv/
