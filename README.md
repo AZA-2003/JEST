@@ -15,7 +15,11 @@ While JEST is a Python library, its main implementations wrap around functions w
 ## Setup
 JEST can be installed using `pip`:  
 ```bash
-pip install JEST
+pip install JEST-Phylo
+```
+and can be used in any Python3 file by importing as follows:
+```Python3
+import JEST
 ```
 ## Usage (with a toy example)
 
