@@ -145,11 +145,11 @@ Arguments:
 '''
 
 def gene_consensus(jplace_path: str,
-                        gamma: float = 1.0,
-                        num_threads: int = 32,
-                        get_error: bool = False,
-                        ground_truth: str = None,
-                        ground_truth_tree_path: str = ""):
+                   gamma: float = 1.0,
+                   num_threads: int = 32,
+                   get_error: bool = False,
+                   ground_truth: str = None,
+                   ground_truth_tree_path: str = ""):
  
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]

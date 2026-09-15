@@ -14,5 +14,8 @@ While JEST is a Python library, its main implementations wrap around functions w
 
 ## Setup
 JEST can be installed using `pip`:  
-`pip install JEST`
+```bash
+pip install JEST
+```
 ## Usage (with a toy example)
+

@@ -131,7 +131,7 @@ map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vecto
 	ofstream outFile(dest_path, ios::out);
 	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,is_path);
 	auto normalize = [&rp_mean, &rp_std](auto  kv) {kv.second = (kv.second-rp_mean)/(rp_std+1e-5f);};
-	auto get_pvalue = [&rp_mean, &rp_std](float kv) {return 0.5+0.5*erf((kv-rp_mean)*M_SQRT1_2/(rp_std+1e-5f));};
+	auto get_pvalue = [&rp_mean, &rp_std](float kv) {return 0.5+0.5*erf((kv-rp_mean)*M_SQRT1_2/(rp_std+1e-8f));};
 	map<string,float> pval_uncertainties;
 	outFile << "name\tuncertainty p-value\n";
 	for(auto it = uncertainties.begin(); it != uncertainties.end(); ++it){

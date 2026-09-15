@@ -738,6 +738,7 @@ inline compact_tree::compact_tree(const char* const input, bool is_fn, bool stor
                         if(curr_node != (CT_NODE_T)0) {
                             throw std::invalid_argument((is_fn ? ERROR_INVALID_NEWICK_FILE : ERROR_INVALID_NEWICK_STRING) + std::string(": ") + std::string(input));
                         }
+						close(fd);
                         return;
 
                     // go to new child
