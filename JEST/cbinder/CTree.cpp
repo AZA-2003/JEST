@@ -124,7 +124,7 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 	return placement_uncertainties;
 }
 
-
+//TODO reduce memory consumption by rerferencing the uncertainty scores instead of copying
 map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>& placements, 
 								float rp_mean, float rp_std, size_t num_threads, string dest_path, bool is_path){
 	
@@ -158,6 +158,7 @@ map<string, vector<string>> label_children (string tree_string, bool is_path){
 	return mapper;
 }
 
+//TODO redesign the alogirthm for better speed
 vector<string> placement_consensus(string jtree, string tree_string, vector<placement_obj>& placements, float gamma, size_t num_threads, string dest_path, bool get_error, string ground_truth, string gt_tree){
 	
 	ofstream outFile(dest_path, ios::out);
@@ -376,4 +377,111 @@ string gene_consensus(string jtree, string tree_string, vector<placement_obj>& p
 		cout << f1_label << "\t" << edge_error <<"\n";
 	}
 	return f1_label;
+}
+
+map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, string ground_truth, size_t num_threads, string dest_path,  bool is_path){
+	
+	ofstream outFile(dest_path, ios::out);
+	compact_tree tree;
+
+	if (is_path)
+		tree = compact_tree(tree_string,true,true,true,0);
+	else
+		tree = compact_tree(tree_string,false,true,true,0);
+
+	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	for (CT_NODE_T node = 0; node < tree.get_num_nodes(); ++node) tree.set_edge_length(node,1.0);
+	vector<pair<string,float>> edge_errors(placements.size());
+
+	outFile << "name\tlabel\tground truth\tedge error\n";
+
+	size_t ol_threads = min(num_threads,placements.size());
+	omp_set_nested(1);
+	omp_set_num_threads(ol_threads);
+	#pragma omp parallel for
+	for (size_t idx = 0; idx < placements.size(); idx++){
+		placement_obj & placement = placements[idx];
+		string lbl_placement;
+		float max_likelihood = 0.0;
+		if (placement.p.size() == 0){
+			edge_errors[idx] = {placement.n[0], NAN};
+			continue;
+		}
+		for (size_t p_idx = 0; p_idx < placement.p.size(); p_idx++){
+			int edge = placement.p[p_idx][0];
+			int ixe = jtree.find("{"+to_string(edge)+"}");
+			string tree_substring = jtree.substr(0,ixe);
+			int ixs = max({tree_substring.rfind(','),
+						tree_substring.rfind('('),
+						tree_substring.rfind(')')});
+			float likelihood = placement.p[p_idx][4];
+			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
+			if (likelihood > max_likelihood){
+				max_likelihood = likelihood;
+				lbl_placement = jtree_split[0];
+			}
+		}
+		float edge_error = get_placement_error(lbl_to_node[lbl_placement], lbl_to_node[ground_truth],tree);
+		edge_errors[idx] = {placement.n[0], edge_error};
+		#pragma omp critical
+		outFile << placement.n[0] << "\t" << lbl_placement << "\t" << ground_truth << "\t" << edge_error;
+		
+	}
+	outFile.close();
+	map<string,float> placement_edge_errors(edge_errors.begin(), edge_errors.end());
+	return placement_edge_errors;
+}
+
+// TODO will add some error checks for the list to correspond to the placement size and ensure proper swig translation
+map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> ground_truth, size_t num_threads, string dest_path,  bool is_path){
+	
+	ofstream outFile(dest_path, ios::out);
+	compact_tree tree;
+
+	if (is_path)
+		tree = compact_tree(tree_string,true,true,true,0);
+	else
+		tree = compact_tree(tree_string,false,true,true,0);
+
+	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	for (CT_NODE_T node = 0; node < tree.get_num_nodes(); ++node) tree.set_edge_length(node,1.0);
+	vector<pair<string,float>> edge_errors(placements.size());
+
+	outFile << "name\tlabel\tground truth\tedge error\n";
+
+	size_t ol_threads = min(num_threads,placements.size());
+	omp_set_nested(1);
+	omp_set_num_threads(ol_threads);
+	#pragma omp parallel for
+	for (size_t idx = 0; idx < placements.size(); idx++){
+		placement_obj & placement = placements[idx];
+		string lbl_placement;
+		float max_likelihood = 0.0;
+		if (placement.p.size() == 0){
+			edge_errors[idx] = {placement.n[0], NAN};
+			continue;
+		}
+		for (size_t p_idx = 0; p_idx < placement.p.size(); p_idx++){
+			int edge = placement.p[p_idx][0];
+			int ixe = jtree.find("{"+to_string(edge)+"}");
+			string tree_substring = jtree.substr(0,ixe);
+			int ixs = max({tree_substring.rfind(','),
+						tree_substring.rfind('('),
+						tree_substring.rfind(')')});
+			float likelihood = placement.p[p_idx][4];
+			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
+			if (likelihood > max_likelihood){
+				max_likelihood = likelihood;
+				lbl_placement = jtree_split[0];
+			}
+		}
+		float edge_error = get_placement_error(lbl_to_node[lbl_placement], lbl_to_node[ground_truth[idx]],tree);
+		edge_errors[idx] = {placement.n[0], edge_error};
+		#pragma omp critical
+		outFile << placement.n[0] << "\t" << lbl_placement << "\t" << ground_truth[idx] << "\t" << edge_error;
+		
+	}
+	outFile.close();
+	map<string,float> placement_edge_errors(edge_errors.begin(), edge_errors.end());
+	return placement_edge_errors;
 }

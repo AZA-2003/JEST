@@ -10,12 +10,23 @@
     extern vector<string> split_string(string s, char delim);
     extern map<string, CT_NODE_T> label_to_node(compact_tree tree); 
     extern map<string, vector<string>> label_children(string tree_string, bool is_path);
+    
     extern vector<float> get_random_placements_uncertainty (string tree_string, size_t trials, size_t random_placements, size_t num_threads, bool is_path);
+    
     extern float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree);
+    
     extern map<string,float> get_raw_uncertainty (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, bool is_path);
+    
     extern map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>&, float rp_mean, float rp_std , size_t num_threads, string dest_path, bool is_path);
+    
     extern vector<string> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, string dest_path, bool get_error, string ground_truth, string gt_tree);
+    
     extern string gene_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, string ground_truth, string gt_tree);
+
+    extern map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, string ground_truth, size_t num_threads, string dest_path, bool is_path);
+
+    extern map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> ground_truth, size_t num_threads, string dest_path, bool is_path);
+
 %}
 %include <std_string.i>
 %include <std_map.i>
@@ -110,3 +121,6 @@ std::map<std::string,float> get_uncertainty_pvalue(std::string jtree, std::strin
 std::vector<std::string> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, std::string dest_path, bool get_error, std::string ground_truth, std::string gt_tree);
 std::string gene_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, std::string ground_truth, std::string gt_tree);
 
+std::map<std::string,float> placement_edge_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, std::string ground_truth, size_t num_threads, std::string dest_path, bool is_path);
+
+std::map<std::string,float> placement_edge_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> ground_truth, size_t num_threads, std::string dest_path, bool is_path);

@@ -168,3 +168,13 @@ def gene_consensus(jplace_path: str,
     results = CTree.gene_consensus(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, get_error, ground_truth, ground_truth_tree_path)
     return results
 
+
+def placement_edge_error():
+    pass
+
+def placement_edge_error():
+    pass
+
+
+
+
