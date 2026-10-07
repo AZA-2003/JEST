@@ -6,7 +6,8 @@ from . import _CTree as CTree
 from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_CONSENSUS_EDGE_ERROR, ERROR_GAMMA
 import json
 import re
-
+import math
+from pathlib import Path 
 
 '''
 Calculates uncertainty scores for a given jplace file while also providing filtering capabilities
@@ -39,7 +40,9 @@ def uncertainty_score(jplace_path: str,
         print(f"Error with Argument Values: {E}")
         exit()
 
-
+    if filter_queries:
+        trials = max(trials, 10/alpha)
+    
     jplace_file = read_jplace(jplace_path)
 
     jplace_tree = jplace_file["tree"]
@@ -52,16 +55,24 @@ def uncertainty_score(jplace_path: str,
         tree = tree_path
     
     # process the mean and std using numpy instead of numpy to avoid package bloat
+    print(f"Generating {trials} number of trials for Null Distribution")
     random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
     mean = sum(random_placements)/len(random_placements)
-    std = (sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements)) + 1e-8
-    print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
-    dest_file = dest_path +"/"+ jplace_path.split("/")[-1].split(".")[0] + "_uncertainty.txt"
+    std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
+    print(f"Null Distribution generated with mean {mean} and standard deviation {std}") 
+    #dest_file = dest_path +"/"+ jplace_path.split("/")[-1].split(".")[0] + "_uncertainty.txt"
+    fields = jplace_file["fields"]
+    lwr_idx = fields.find("like_weight_ratio")
+    edge_num_idx = fields.find("edge_num")
+    dest_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt")
     print("Generating uncertainty scores...")
-    results = CTree.get_uncertainty_pvalue(jplace_tree,tree,jplace_file["placements"],mean,std,num_threads,dest_file,is_tree_path)
+    results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
+            jplace_file["placements"], random_placements, 
+            num_threads, dest_file, is_tree_path,
+            lwr_idx, edge_num_idx)
     ## in-place filtration
-    print(f"Filtering queries...")
     if filter_queries == True:
+        print(f"Filtering queries...")
         remaining_placements = []
         filtered_queries = []
         for idx,(name,score) in enumerate(results.items()):
@@ -71,11 +82,13 @@ def uncertainty_score(jplace_path: str,
                 remaining_placements.append(jplace_file["placements"][idx])
         jplace_file["placements"] = remaining_placements
         ##TODO Windows support or better string manipulation for writing to destination
-        new_jplace_path = dest_path + "/"+ jplace_path.split("/")[-1].split(".")[0]+f"_filtered_{alpha}.jplace"
+        #new_jplace_path = dest_path + "/"+ jplace_path.split("/")[-1].split(".")[0]+f"_filtered_{alpha}.jplace"
+        new_jplace_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace")
         with open(new_jplace_path, "w") as f:
             json.dump(jplace_file, f, indent=4)
         if len(filtered_queries) > 0:
-            filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
+            #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
+            filtered_queries_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt")
             with open(filtered_queries_path, "w") as f:
                 f.write('\n'.join(filtered_queries))
 
@@ -126,6 +139,34 @@ def placement_consensus(jplace_path: str,
     results =  list(CTree.placement_consensus(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, dest_path, get_error, ground_truth, ground_truth_tree_path))
     return results
 
+def placement_consensus_new(jplace_path: str,
+                        dest_path: str,
+                        gamma: float = 1.0,
+                        num_threads: int = 32,
+                        get_error: bool = False,
+                        ground_truth: str = None,
+                        ground_truth_tree_path: str = ""):
+    
+    jplace_file = read_jplace(jplace_path)
+    jplace_tree = jplace_file["tree"]
+    jplace_tree = label_internal_nodes(jplace_tree)
+    tree = re.sub(r"{[0-9]+}","",jplace_tree)
+    # Only check if there is a ground truth label 
+    ## It is possible to use the jplace tree for error estimation
+    ## in the the case of inference.
+    try:
+        if (get_error) and (ground_truth == None):
+            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
+        if (gamma <= 0):
+            raise ValueError(ERROR_GAMMA)
+    except ValueError as E:
+        print(f"Error with Argument Values: {E}")
+        exit()
+
+    results =  list(CTree.placement_consensus_new(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, dest_path, get_error, ground_truth, ground_truth_tree_path))
+    return results
+
+
 
 '''
 Summarizes multiple placements for all queries in the file to a single placement on the tree
@@ -169,11 +210,74 @@ def gene_consensus(jplace_path: str,
     return results
 
 
-def placement_edge_error():
-    pass
+def placement_edge_error(jplace_path: str,
+                         dest_path: str,
+                         tree_path: str,
+                         ground_truth: str,
+                         num_threads: int = 32):
 
+    jplace_file = read_jplace(jplace_path)
+
+    jplace_tree = jplace_file["tree"]
+    if tree_path == "":
+        jplace_tree = label_internal_nodes(jplace_tree)
+        tree = re.sub(r"{[0-9]+}","",jplace_tree)
+        is_tree_path = False
+    else:
+        is_tree_path = True
+        tree = tree_path
+     
+    return CTree.placement_edge_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, dest_path, is_tree_path)
+
+'''
 def placement_edge_error():
     pass
+'''
+
+def multi_copy_consensus(jplace_path: str,
+                         alpha: float = 0.05,
+                         random_placements: int = 100,
+                         trials: int = 1000,
+                         gammma: float = 1.0,
+                         num_threads: int = 32):
+    
+    jplace_file = read_jplace(jplace_path)
+    jplace_tree = jplace_file["tree"]
+    jplace_tree = label_internal_nodes(jplace_tree)
+    tree = re.sub(r"{[0-9]+}","",jplace_tree)
+    
+    try:
+        if ((alpha < 0.0) or (alpha > 1.0)):
+            raise ValueError(ERROR_FILTER)
+        if trials <= 0 or random_placements <= 0:
+            raise ValueError(ERROR_RANDOM)
+        if (get_error) and (ground_truth == None):
+            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
+        if (gamma <= 0):
+            raise ValueError(ERROR_GAMMA)
+    except ValueError as E:
+        print(f"Error with Argument Values: {E}")
+        exit()
+
+    
+def random_placement_uncertainty(tree_path: str,
+                      dest_path: str,
+                      random_placements: int = 100,
+                      trials: int = 1000,
+                      num_threads: int = 32):
+    
+    is_tree_path = True
+    tree = tree_path
+    
+    # process the mean and std using numpy instead of numpy to avoid package bloat
+    random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
+    mean = sum(random_placements)/len(random_placements)
+    std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
+    print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
+    with open(f"{dest_path}","w") as f:
+        for rp in sorted(random_placements):
+            f.write(f"{rp}\n")
+ 
 
 
 

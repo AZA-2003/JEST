@@ -46,8 +46,7 @@ vector<float> get_random_placements_uncertainty (string tree_string, size_t tria
 	return uncertainties;
 }
 map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<placement_obj>& placements, 
-								size_t num_threads, bool is_path,
-								size_t lwr_idx, size_t en_idx){
+								size_t num_threads, bool is_path){
 	/** placment should consist of n and p where 
 	 * n is the name of the placement 
 	 * p is the placement info of all possible 
@@ -82,13 +81,13 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 		//omp_set_num_threads(min(num_threads,placement.p.size()));
 		//#pragma omp parallel for
 		for (size_t p_idx = 0; p_idx < placement.p.size(); p_idx++){
-			int edge = placement.p[p_idx][en_idx];
+			int edge = placement.p[p_idx][0];
 			int ixe = jtree.find("{"+to_string(edge)+"}");
 			string tree_substring = jtree.substr(0,ixe);
 			int ixs = max({tree_substring.rfind(','),
 						tree_substring.rfind('('),
 						tree_substring.rfind(')')});
-			float likelihood = placement.p[p_idx][lwr_idx];
+			float likelihood = placement.p[p_idx][4];
 			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
 			string lbl_placement = jtree_split[0];
 			p_lbl[p_idx] = lbl_placement;
@@ -109,12 +108,7 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 
 		// step 2: calculate raw uncertainty
 		// Rooted case
-		//if (rooted == True){
-		//	auto get_p_lbl_nodes[& lbl_to_nd](string lbl){return lbl_to_nd[lbl];};
-		//	vector<CT_NODE_T> p_nodes = for_each(p_lbl.begin(), p_lbl.end(), get_p_lbl_nodes);
-		//	CT_NODE_T ref_placement = tree.find_mrca(p_nodes);
-		//}	
-		//else{}
+	
 		// Unrooted case
 		size_t ref_placement_idx = distance(p_l_ratio.begin(), max_element(p_l_ratio.begin(), p_l_ratio.end()));
 		//cout << p_lbl[ref_placement_idx] <<"\t";
@@ -128,41 +122,26 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 			weighted_score += abs(tree.calc_dist(ref_placement, node_placements[j])) * p_l_ratio[j];
 		}
 		//TODO add a small tweak where score is then divided by (1-ref_placement_likelihood)
-		/**
-		if (p_l_ratio[ref_placement_idx] != 1.0)
-			weighted_score /= (1-p_l_ratio[ref_placement_idx]);
-		**/
 		uncertainty_scores[idx] = {placement.n[0], weighted_score};
 	}
 	map<string,float> placement_uncertainties(uncertainty_scores.begin(), uncertainty_scores.end());
 	return placement_uncertainties;
 }
 
+//TODO reduce memory consumption by rerferencing the uncertainty scores instead of copying
 map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>& placements, 
-					vector<float> random_dist, 
-					size_t num_threads, string dest_path, bool is_path, size_t lwr_idx, size_t en_idx){
+								float rp_mean, float rp_std, size_t num_threads, string dest_path, bool is_path){
 	
 	ofstream outFile(dest_path, ios::out);
-	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,is_path, lwr_idx, en_idx);
-	float rp_mean = accumulate(random_dist.begin(), random_dist.end(), 0.0) /random_dist.size();
-	auto mean_center_square = [&rp_mean](float& v){v = (v-rp_mean)*(v-rp_mean);};
-	vector<float> rp_mean_center(random_dist);
-	for_each(rp_mean_center.begin(), rp_mean_center.end(), mean_center_square);
-	float rp_std = sqrt(accumulate(rp_mean_center.begin(), rp_mean_center.end(), 0.)/rp_mean_center.size());
-	//cout << rp_mean <<"\t"<< rp_std<<"\n";
-	auto normalize_rd = [&rp_mean, &rp_std](float&  v) {v = (v-rp_mean)/(rp_std+1e-5f);};
-	auto normalize = [&rp_mean, &rp_std](float  v) {return (v-rp_mean)/(rp_std+1e-5f);};
-	//auto normalize_rd = [&rp_mean, &rp_std](float&  v) {v = (v/(rp_mean+1e-8f));};
-	//auto normalize = [&rp_mean, &rp_std](float  v) {return (v/(rp_mean+1e-8f));};
-	//auto get_pvalue = [&rp_mean, &rp_std](float kv) {return 0.5+0.5*erf((kv-rp_mean)*M_SQRT1_2/(rp_std+1e-8f));};
-	for_each(random_dist.begin(), random_dist.end(), normalize_rd);
+	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,is_path);
+	auto normalize = [&rp_mean, &rp_std](auto  kv) {kv.second = (kv.second-rp_mean)/(rp_std+1e-5f);};
+	auto get_pvalue = [&rp_mean, &rp_std](float kv) {return 0.5+0.5*erf((kv-rp_mean)*M_SQRT1_2/(rp_std+1e-8f));};
 	map<string,float> pval_uncertainties;
-	outFile << "name\tuncertainty raw score\tuncertainty normalized\tuncertainty p-value\n";
+	outFile << "name\tuncertainty p-value\n";
 	setprecision(4);
 	for(auto it = uncertainties.begin(); it != uncertainties.end(); ++it){
-		//cout << it->second <<"\t"<< normalize(it->second) << "\n";
-		pval_uncertainties[it->first] = Percentile(random_dist, normalize(it->second));
-		outFile << it->first << "\t" << it->second <<"\t"<< normalize(it->second) <<"\t" << pval_uncertainties[it->first] << "\n";
+		pval_uncertainties[it->first] = get_pvalue(it->second);
+		outFile << it->first << "\t" << pval_uncertainties[it->first] << "\n";
 	}
 	outFile.close();
 	return pval_uncertainties;
@@ -240,66 +219,60 @@ vector<string> placement_consensus_new(string jtree, string tree_string, vector<
 			outFile << placement.n[0] << "\t" << "N/A" << "N/A";
 			continue;
 		}
-			// nice trick to normalize the likelihood weight ratio
+		// nice trick to normalize the likelihood weight ratio
 		auto normalize_p_l_ratio = [& p_l_ratio_sum](float &n){n = n/p_l_ratio_sum;};
 		for_each(p_l_ratio.begin(), p_l_ratio.end(), normalize_p_l_ratio);
 
 		// step 2: perform placement consensus
+		vector<CT_NODE_T> node_placements;
+		for (size_t i =0; i < p_lbl.size(); i++)
+			node_placements.push_back(lbl_to_nd[p_lbl[i]]);
+
+		size_t ref_placement_idx = distance(p_l_ratio.begin(), max_element(p_l_ratio.begin(), p_l_ratio.end()));
+		CT_NODE_T ref_placement = lbl_to_nd[p_lbl[ref_placement_idx]];
+		float weighted_score = 0.0;
+		for (size_t j = 0; j < node_placements.size(); j++){
+			weighted_score += abs(tree.calc_dist(ref_placement, node_placements[j])) * p_l_ratio[j];
+		}
+		
+		float w_gamma  = 1/(weighted_score + 1e-8f);
+		map<string, float> TP_node, FP_node;
+		map<string, size_t> count;
+		
+		deque<string> Deque;
+		for (string p : p_lbl) Deque.push_back(p);
 		string precision_label;
 		float max_prec_score = 0.0;
-		
-		if (p_lbl.size() == 1){
-			precision_label = p_lbl[0];
-		}
-		else{
-			vector<CT_NODE_T> node_placements;
-			for (size_t i =0; i < p_lbl.size(); i++)
-				node_placements.push_back(lbl_to_nd[p_lbl[i]]);
 
-			size_t ref_placement_idx = distance(p_l_ratio.begin(), max_element(p_l_ratio.begin(), p_l_ratio.end()));
-			CT_NODE_T ref_placement = lbl_to_nd[p_lbl[ref_placement_idx]];
-			float weighted_score = 0.0;
-			for (size_t j = 0; j < node_placements.size(); j++){
-				weighted_score += abs(tree.calc_dist(ref_placement, node_placements[j])) * p_l_ratio[j];
+		string & carrier_lbl = Deque.front();
+		while (Deque.size() != 0){
+			count[carrier_lbl] += 1;
+			auto idx = find(p_lbl.begin(), p_lbl.end(), carrier_lbl);
+			if (idx != p_lbl.end()){
+				size_t p_idx = distance(p_lbl.begin(), idx);	
+				TP_node[carrier_lbl] = p_l_ratio[p_idx]*w_gamma;
+				FP_node[carrier_lbl] = (1.0-p_l_ratio[p_idx])*w_gamma;
+			}else{
+				TP_node[carrier_lbl] = 0.0;
+				FP_node[carrier_lbl] = w_gamma;	
 			}
-			float w_gamma  = 1/(weighted_score + 1e-8f);
-			map<string, float> TP_node, FP_node;
-			map<string, size_t> count;
-				
-			deque<string> Deque;
-			for (string p : p_lbl) Deque.push_back(p);
-
-			string carrier_lbl;
-			while (Deque.size() != 0){
-				carrier_lbl = Deque.front();
-				count[carrier_lbl] += 1;
-				auto idx = find(p_lbl.begin(), p_lbl.end(), carrier_lbl);
-				if (idx != p_lbl.end()){
-					size_t p_idx = distance(p_lbl.begin(), idx);	
-					TP_node[carrier_lbl] = p_l_ratio[p_idx]*w_gamma;
-					FP_node[carrier_lbl] = (1.0-p_l_ratio[p_idx])*w_gamma;
-				}else{
-					TP_node[carrier_lbl] = 0.0;
-					FP_node[carrier_lbl] = w_gamma;	
+			if (!tree.is_leaf(lbl_to_nd[carrier_lbl])){
+				for (CT_NODE_T child : tree.get_children(lbl_to_nd[carrier_lbl])){
+					string child_lbl = tree.get_label(child);
+					TP_node[carrier_lbl] += TP_node[child_lbl]*exp(-w_gamma*tree.calc_dist(lbl_to_nd[carrier_lbl],child));
+					FP_node[carrier_lbl] += FP_node[child_lbl]*exp(-w_gamma*tree.calc_dist(lbl_to_nd[carrier_lbl],child));
 				}
-				if (!tree.is_leaf(lbl_to_nd[carrier_lbl])){
-					for (CT_NODE_T child : tree.get_children(lbl_to_nd[carrier_lbl])){
-						string child_lbl = tree.get_label(child);
-						TP_node[carrier_lbl] += TP_node[child_lbl]*exp(-w_gamma*tree.calc_dist(lbl_to_nd[carrier_lbl],child));
-						FP_node[carrier_lbl] += FP_node[child_lbl]*exp(-w_gamma*tree.calc_dist(lbl_to_nd[carrier_lbl],child));
-					}
-				}
-				float prec = TP_node[carrier_lbl]/(TP_node[carrier_lbl] + FP_node[carrier_lbl]);
-				if (prec > max_prec_score) {
-					max_prec_score = prec;
-					precision_label = carrier_lbl;
-				}
-				if (count[carrier_lbl] == p_lbl.size())
-					break;
-				else if (tree.get_parent(lbl_to_nd[carrier_lbl]) != NULL_NODE)
-					Deque.push_back(tree.get_label(tree.get_parent(lbl_to_nd[carrier_lbl])));
-				Deque.pop_front();		
 			}
+			float prec = TP_node[carrier_lbl]/(TP_node[carrier_lbl] + FP_node[carrier_lbl]);
+			if (prec > max_prec_score) {
+				max_prec_score = prec;
+				precision_label = carrier_lbl;
+			}
+			if (count[carrier_lbl] == p_lbl.size())
+				break;
+			else if (tree.get_parent(lbl_to_nd[carrier_lbl]) != NULL_NODE)
+				Deque.push_back(tree.get_label(tree.get_parent(lbl_to_nd[carrier_lbl])));
+			Deque.pop_front();		
 		}
 		consensus[c_idx] = precision_label;
 		if (get_error){

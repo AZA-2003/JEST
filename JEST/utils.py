@@ -42,6 +42,7 @@ def read_jplace(jplace_path):
             with open(jplace_path,"r") as f:
                 jd = json.load(f)
         return jd
-    except FileNotFoundError as E:
+    except Exception as E:
+        print(f"Error reading {jplace_path}\n {E}!")
         raise E(errno.ENOENT, os.strerror(errno.ENOENT), jplace_path)
    

@@ -63,3 +63,33 @@ float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree){
 	}
 	return -1.0; //error management
 }
+
+float Percentile(vector<float> Dist, float test){
+	
+	float PreVal, NextVal;
+	size_t distSize = Dist.size();
+	sort(Dist.begin(), Dist.end());
+	//for(float v : Dist) cout << v << " ";
+	//cout << "\n";
+	size_t lt_count = 0;
+	size_t e_count = 0;
+	for (float val : Dist){
+		if(test == val)
+			e_count = e_count+1;
+		if(test > val)
+			lt_count = lt_count+1;
+	}
+	return (0.5*e_count + lt_count)/(distSize);
+	/*
+	if (test <= Dist.front())
+		return 0.0;
+	else if (test >= Dist.back())
+		return 1.0;
+	else{
+		auto it = lower_bound(Dist.begin(), Dist.end(), test);
+		PreVal = *(it - 1);
+		NextVal = *(it + 1);
+		return (test - PreVal)/(NextVal - PreVal) + (it - Dist.begin())/distSize;
+	}
+	*/
+}
