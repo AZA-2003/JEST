@@ -62,14 +62,16 @@ def uncertainty_score(jplace_path: str,
     print(f"Null Distribution generated with mean {mean} and standard deviation {std}") 
     #dest_file = dest_path +"/"+ jplace_path.split("/")[-1].split(".")[0] + "_uncertainty.txt"
     fields = jplace_file["fields"]
-    lwr_idx = fields.find("like_weight_ratio")
-    edge_num_idx = fields.find("edge_num")
-    dest_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt")
-    print("Generating uncertainty scores...")
+    lwr_idx = fields.index("like_weight_ratio")
+    edge_num_idx = fields.index("edge_num")
+    #print(lwr_idx, edge_num_idx)
+    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt"))
+    print(f"Generating uncertainty scores and writing to {dest_file}")
     results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
             jplace_file["placements"], random_placements, 
             num_threads, dest_file, is_tree_path,
             lwr_idx, edge_num_idx)
+    print("Done generating uncertainty scores!")
     ## in-place filtration
     if filter_queries == True:
         print(f"Filtering queries...")
@@ -83,12 +85,12 @@ def uncertainty_score(jplace_path: str,
         jplace_file["placements"] = remaining_placements
         ##TODO Windows support or better string manipulation for writing to destination
         #new_jplace_path = dest_path + "/"+ jplace_path.split("/")[-1].split(".")[0]+f"_filtered_{alpha}.jplace"
-        new_jplace_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace")
+        new_jplace_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace"))
         with open(new_jplace_path, "w") as f:
             json.dump(jplace_file, f, indent=4)
         if len(filtered_queries) > 0:
             #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
-            filtered_queries_file = Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt")
+            filtered_queries_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
             with open(filtered_queries_path, "w") as f:
                 f.write('\n'.join(filtered_queries))
 

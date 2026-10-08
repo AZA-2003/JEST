@@ -70,7 +70,6 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 	
 	map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
 	vector<pair<string,float>> uncertainty_scores(placements.size());
-
 	size_t ol_threads = min(num_threads,placements.size());
 	omp_set_nested(1);
 	omp_set_num_threads(ol_threads);
@@ -83,12 +82,12 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 		//#pragma omp parallel for
 		for (size_t p_idx = 0; p_idx < placement.p.size(); p_idx++){
 			int edge = placement.p[p_idx][en_idx];
+			float likelihood = placement.p[p_idx][lwr_idx];
 			int ixe = jtree.find("{"+to_string(edge)+"}");
 			string tree_substring = jtree.substr(0,ixe);
 			int ixs = max({tree_substring.rfind(','),
 						tree_substring.rfind('('),
 						tree_substring.rfind(')')});
-			float likelihood = placement.p[p_idx][lwr_idx];
 			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
 			string lbl_placement = jtree_split[0];
 			p_lbl[p_idx] = lbl_placement;
@@ -106,7 +105,6 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 		//cout << p_lbl.size() << "\t";
 		for (size_t i =0; i < p_lbl.size(); i++)
 			node_placements.push_back(lbl_to_nd[p_lbl[i]]);
-
 		// step 2: calculate raw uncertainty
 		// Rooted case
 		//if (rooted == True){
