@@ -24,4 +24,6 @@ map<string, CT_NODE_T> label_to_node(compact_tree tree);
 
 float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree); 
 
+float Percentile(vector<float> Dist, float test);
+
 #endif
