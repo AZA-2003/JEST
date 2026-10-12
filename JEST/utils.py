@@ -44,5 +44,5 @@ def read_jplace(jplace_path):
         return jd
     except Exception as E:
         print(f"Error reading {jplace_path}\n {E}!")
-        raise E(errno.ENOENT, os.strerror(errno.ENOENT), jplace_path)
-   
+        #raise E(errno.ENOENT, os.strerror(errno.ENOENT), jplace_path)
+        raise

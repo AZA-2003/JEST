@@ -2,10 +2,15 @@
 CTree_wrapper.py wraps around the Cpp-binded functions
 in Python for better usability
 '''
-from . import _CTree as CTree
+try:
+    from . import _CTree as CTree
+except ImportError:
+    import _CTree as CTree
+
 from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_CONSENSUS_EDGE_ERROR, ERROR_GAMMA
 import json
 import re
+import os
 import math
 from pathlib import Path 
 
@@ -29,21 +34,26 @@ def uncertainty_score(jplace_path: str,
                       random_placements: int = 100,
                       trials: int = 1000,
                       num_threads: int = 32,
-                      tree_path: str = ""):
+                      tree_path: str = "",
+                      random_dist_path = ""):
     
+    if os.path.getsize(jplace_path) == 0:
+        print(f"{jplace_path} appears to be empty, exiting now.")
     try:
         if (filter_queries == True) and ((alpha < 0.0) or (alpha > 1.0)):
             raise ValueError(ERROR_FILTER)
         if trials <= 0 or random_placements <= 0:
             raise ValueError(ERROR_RANDOM)
     except ValueError as E:
-        print(f"Error with Argument Values: {E}")
+        print(f"Error with Argument Values: {E}.")
         exit()
 
     if filter_queries:
         trials = max(trials, 10/alpha)
     
     jplace_file = read_jplace(jplace_path)
+    if len(jplace_file["placements"]) == 0:
+        print(f"{jplace_path} appears to have no placements, exiting now.")
 
     jplace_tree = jplace_file["tree"]
     if tree_path == "":
@@ -55,8 +65,14 @@ def uncertainty_score(jplace_path: str,
         tree = tree_path
     
     # process the mean and std using numpy instead of numpy to avoid package bloat
-    print(f"Generating {trials} number of trials for Null Distribution")
-    random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
+    if random_dist_path == "":
+        print(f"Generating {trials} number of trials for Null distribution.")
+        random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
+    else:
+        print(f"Reading the Null distribution from {random_dist_path}.")
+        with open(random_dist_path, "r") as f:
+            random_placements = [float(line.strip()) for line in f]
+
     mean = sum(random_placements)/len(random_placements)
     std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
     print(f"Null Distribution generated with mean {mean} and standard deviation {std}") 
@@ -66,7 +82,7 @@ def uncertainty_score(jplace_path: str,
     edge_num_idx = fields.index("edge_num")
     #print(lwr_idx, edge_num_idx)
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt"))
-    print(f"Generating uncertainty scores and writing to {dest_file}")
+    #print(f"Generating uncertainty scores and writing to {dest_file}.")
     results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
             jplace_file["placements"], random_placements, 
             num_threads, dest_file, is_tree_path,
@@ -279,7 +295,7 @@ def random_placement_uncertainty(tree_path: str,
     with open(f"{dest_path}","w") as f:
         for rp in sorted(random_placements):
             f.write(f"{rp}\n")
- 
+    return random_placements 
 
 
 
