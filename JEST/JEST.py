@@ -2,11 +2,12 @@
 CTree_wrapper.py wraps around the Cpp-binded functions
 in Python for better usability
 '''
-try:
-    from . import _CTree as CTree
-except ImportError:
-    import _CTree as CTree
+#try:
+#    from . import _CTree as CTree
+#except ImportError:
+#    import _CTree as CTree
 
+from . import _CTree as CTree
 from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_CONSENSUS_EDGE_ERROR, ERROR_GAMMA
 import json
 import re
@@ -101,12 +102,12 @@ def uncertainty_score(jplace_path: str,
         jplace_file["placements"] = remaining_placements
         ##TODO Windows support or better string manipulation for writing to destination
         #new_jplace_path = dest_path + "/"+ jplace_path.split("/")[-1].split(".")[0]+f"_filtered_{alpha}.jplace"
-        new_jplace_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace"))
+        new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace"))
         with open(new_jplace_path, "w") as f:
             json.dump(jplace_file, f, indent=4)
         if len(filtered_queries) > 0:
             #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
-            filtered_queries_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
+            filtered_queries_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
             with open(filtered_queries_path, "w") as f:
                 f.write('\n'.join(filtered_queries))
 

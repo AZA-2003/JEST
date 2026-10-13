@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='JEST-Phylo',
-    version='0.2.0',
+    version='0.2.3',
     description="jplace evaluation and scoring tool",
     author='Ali Alabiad',
     author_email="ali.z03@yahoo.com",
