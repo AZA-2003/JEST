@@ -107,7 +107,7 @@ def uncertainty_score(jplace_path: str,
             json.dump(jplace_file, f, indent=4)
         if len(filtered_queries) > 0:
             #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
-            filtered_queries_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
+            filtered_queries_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
             with open(filtered_queries_path, "w") as f:
                 f.write('\n'.join(filtered_queries))
 
