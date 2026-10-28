@@ -15,19 +15,21 @@
     
     extern float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree);
     
-    extern map<string,float> get_raw_uncertainty (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, bool is_path, size_t lwr_idx, size_t en_idx);
+    extern map<string,float> get_raw_uncertainty (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, bool is_path, size_t lwr_idx, size_t en_idx, bool rooted);
     
-    extern map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>&, vector<float> random_dist, size_t num_threads, string dest_path, bool is_path, size_t lwr_idx, size_t en_idx);
+    extern map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>&, vector<float> random_dist, size_t num_threads, string dest_path, bool is_path, vector<string> fields, bool rooted);
     
-    extern vector<string> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, string dest_path, bool get_error, string ground_truth, string gt_tree);
+    extern vector<string> get_placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, vector<string> fields);
     
-    //extern vector<string> placement_consensus_new (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, string dest_path, bool get_error, string ground_truth, string gt_tree);
+    extern vector<vector<float>> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
     
-    extern string gene_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, string ground_truth, string gt_tree);
+    extern string genome_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, string ground_truth, string gt_tree);
 
-    extern map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, string ground_truth, size_t num_threads, string dest_path, bool is_path);
+    extern void placement_error(string jtree, string tree_string, vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
 
-    //extern map<string,float> placement_edge_error(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> ground_truth, size_t num_threads, string dest_path, bool is_path);
+   extern void placement_error_multilabel(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
+ 
+    extern vector<vector<float>> find_length(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
 
 %}
 %include <std_string.i>
@@ -91,19 +93,52 @@
                 PyObject *placement = PyList_GetItem(plist, i);
                 Py_ssize_t pfields = PyList_Size(placement);
                 p_obj.p[i].reserve(pfields);
-                //std::vector<float> query_p;
-                //query_p.reserve(pfields);
                 for (Py_ssize_t j = 0; j < pfields; ++j) {
                     PyObject *py_val = PyList_GetItem(placement, j);
                     p_obj.p[i].push_back((float)PyFloat_AsDouble(py_val));
                 }
-                //p_obj.p.push_back(std::move(query_p)); 
             }
         }
         temp.push_back(p_obj);
     }
     $1 = &temp;
 }
+
+%typemap (out) std::vector<placement_obj>&{
+    
+    //Py_ssize_t nplacements = PyList_Size($1);
+    size_t nplacements = $1.size();
+    PyObject *list_place = PyList_New(nplacements);
+    for (size_t i = 0; i < nplacements; i++){
+        PyObject *pl_dict = PyDict_New();
+        if (!pl_dict) SWIG_fail; 
+        PyObject *nlist = PyList_New($1[i].n.size());
+        size_t plen = $1[i].p.size();
+        PyObject *plist = PyList_New(p_len);
+        
+        if(nlist && PyList_Check(nlist)){
+            PyObject *pname = PyUnicode_FromString($1[i].n.[0].c_str);
+            PyList_SET_ITEM(nlist, 0, pyname);
+        }
+        if(plist && PyList_Check(plist)){
+            for(size_t j = 0; i < plen; i++){
+                PyObject *placement = PyList_New($1[i].p[j].size());
+                size_t pfields = $1[i].p[j].size();
+                for (size_t k = 0; k < pfields; k++){
+                    PyObject *py_val = PyFloat_fromDouble($1[i].p[j][k]);
+                    PyList_SetItem(placement,k,py_val);
+                }
+                PyList_SetItem(plist, j, placement);
+            }
+        }
+        PyDict_SetItemString(pl_dict, "p", plist);
+        PyDict_SetItemString(pl_dict, "n", nlist);
+        Py_DECREF(plist);
+        Py_DECREF(nlist);
+    }
+    $result = pl_dict;
+} 
+
 
 
 %include "CTree_utils.h"
@@ -118,12 +153,20 @@
 
 std::vector<float> get_random_placements_uncertainty (std::string tree_string, size_t trials, size_t random_placements, size_t num_threads, bool is_path);
 std::map<std::string, std::vector<std::string>> label_children(std::string tree_string, bool is_path);
-std::map<std::string,float> get_raw_uncertainty (std::string jtree, std::string tree_string, std::vector<placement_obj>&, size_t num_threads, bool is_path , size_t lwr_idx, size_t en_idx);
-std::map<std::string,float> get_uncertainty_pvalue(std::string jtree, std::string tree_string, std::vector<placement_obj>&, vector<float> random_dist, size_t num_threads, std::string dest_path, bool is_path, size_t lwr_idx, size_t en_idx);
-std::vector<std::string> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, std::string dest_path, bool get_error, std::string ground_truth, std::string gt_tree);
-//std::vector<std::string> placement_consensus_new (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, std::string dest_path, bool get_error, std::string ground_truth, std::string gt_tree);
-std::string gene_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, std::string ground_truth, std::string gt_tree);
 
-std::map<std::string,float> placement_edge_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, std::string ground_truth, size_t num_threads, std::string dest_path, bool is_path);
+std::map<std::string,float> get_raw_uncertainty (std::string jtree, std::string tree_string, std::vector<placement_obj>&, size_t num_threads, bool is_path , size_t lwr_idx, size_t en_idx, bool rooted);
 
-//std::map<std::string,float> placement_edge_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> ground_truth, size_t num_threads, std::string dest_path, bool is_path);
+std::map<std::string,float> get_uncertainty_pvalue(std::string jtree, std::string tree_string, std::vector<placement_obj>&, vector<float> random_dist, size_t num_threads, std::string dest_path, bool is_path, std::vector<std::string>, bool rooted);
+
+std::vector<std::string> get_placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads, std::vector<std::string> fields);
+
+std::vector<std::vector<float>> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
+
+
+std::string genome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, std::string ground_truth, std::string gt_tree);
+
+void placement_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string> fields);
+
+void placement_error_multilabel(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string>);
+
+std::vector<std::vector<float>> find_length(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);

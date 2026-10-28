@@ -10,7 +10,8 @@ import numpy as np
 from scipy import stats
 
 NO_FIELDS = "WARNING: No fields descriptor found in jplace, now resorting to default jplace format"
-ERROR_FILTER = "ERROR: Filter percentile must be between 0 and 1 (set filter_queries to False if you want no filter)!"
+ERROR_FILTER = "ERROR: Filter percentile (alpha) must be between 0 and 1 (set filter_queries to False if you want no filter)!"
+ERROR_ALPHA_RANDOM_MISMATCH = "ERROR: Filter percentile (alpha) is too granular for the given Null distribution; we recommend generating another Null distribution with more trials."
 ERROR_RANDOM = "ERROR: Random placement parameters must be non-zero positive integers!"
 ERROR_CONSENSUS_EDGE_ERROR = "ERROR: Consensus Error chosen but no ground truth label was provided"
 ERROR_GAMMA = "ERROR: Gamma  must be a non-zero positive integer!"

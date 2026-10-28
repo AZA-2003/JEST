@@ -73,6 +73,8 @@ def uncertainty_score(jplace_path: str,
         print(f"Reading the Null distribution from {random_dist_path}.")
         with open(random_dist_path, "r") as f:
             random_placements = [float(line.strip()) for line in f]
+        if len(random_placements) * alpha < 1:
+            raise ValueError(ERROR_ALPHA_RANDOM_MISMATCH)
 
     mean = sum(random_placements)/len(random_placements)
     std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
@@ -133,59 +135,34 @@ Arguments:
 
 def placement_consensus(jplace_path: str,
                         dest_path: str,
-                        gamma: float = 1.0,
                         num_threads: int = 32,
                         get_error: bool = False,
-                        ground_truth: str = None,
-                        ground_truth_tree_path: str = ""):
-    
+                        edge_error: bool = False):
+
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
-    # Only check if there is a ground truth label 
-    ## It is possible to use the jplace tree for error estimation
-    ## in the the case of inference.
+    '''
     try:
         if (get_error) and (ground_truth == None):
             raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
-        if (gamma <= 0):
-            raise ValueError(ERROR_GAMMA)
     except ValueError as E:
         print(f"Error with Argument Values: {E}")
         exit()
-
-    results =  list(CTree.placement_consensus(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, dest_path, get_error, ground_truth, ground_truth_tree_path))
+    '''
+    fields = jplace_file["fields"]
+    placements = jplace_file["placements"]
+    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
+    results =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, get_error, edge_error, fields))
+    for i,result in enumerate(results):
+        result = list(result)
+        result[fields.index("edge_num")] = int(result[fields.index("edge_num")])
+        jplace_file["placements"][i]["p"] = result
+    new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_consensus.jplace"))
+    with open(new_jplace_path, "w") as f:
+        json.dump(jplace_file, f, indent=4)
     return results
-
-def placement_consensus_new(jplace_path: str,
-                        dest_path: str,
-                        gamma: float = 1.0,
-                        num_threads: int = 32,
-                        get_error: bool = False,
-                        ground_truth: str = None,
-                        ground_truth_tree_path: str = ""):
-    
-    jplace_file = read_jplace(jplace_path)
-    jplace_tree = jplace_file["tree"]
-    jplace_tree = label_internal_nodes(jplace_tree)
-    tree = re.sub(r"{[0-9]+}","",jplace_tree)
-    # Only check if there is a ground truth label 
-    ## It is possible to use the jplace tree for error estimation
-    ## in the the case of inference.
-    try:
-        if (get_error) and (ground_truth == None):
-            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
-        if (gamma <= 0):
-            raise ValueError(ERROR_GAMMA)
-    except ValueError as E:
-        print(f"Error with Argument Values: {E}")
-        exit()
-
-    results =  list(CTree.placement_consensus_new(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, dest_path, get_error, ground_truth, ground_truth_tree_path))
-    return results
-
-
 
 '''
 Summarizes multiple placements for all queries in the file to a single placement on the tree
@@ -229,10 +206,11 @@ def gene_consensus(jplace_path: str,
     return results
 
 
-def placement_edge_error(jplace_path: str,
+def placement_error(jplace_path: str,
                          dest_path: str,
-                         tree_path: str,
-                         ground_truth: str,
+                         ground_truth: str | list[str],
+                         tree_path: str = "",
+                         edge_error: bool = False,
                          num_threads: int = 32):
 
     jplace_file = read_jplace(jplace_path)
@@ -245,8 +223,11 @@ def placement_edge_error(jplace_path: str,
     else:
         is_tree_path = True
         tree = tree_path
-     
-    return CTree.placement_edge_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, dest_path, is_tree_path)
+
+    if type(ground_truth) is list: 
+        return CTree.placement_error_multilabel(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
+    else:
+        return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
 
 '''
 def placement_edge_error():
