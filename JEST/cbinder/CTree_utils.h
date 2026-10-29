@@ -14,6 +14,8 @@ using namespace std;
 struct placement_obj {
 	vector<string> n;
 	vector<vector<float>> p;
+	placement_obj() : n(0), p(0) {}
+    placement_obj(vector<string> n, vector<vector<float>> p) : n(n), p(p) {}
 };
 
 vector<string> split_string (string s, char delim);

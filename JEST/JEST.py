@@ -1,5 +1,5 @@
 '''
-CTree_wrapper.py wraps around the Cpp-binded functions
+JEST.py wraps around the Cpp-binded functions
 in Python for better usability
 '''
 #try:
@@ -155,10 +155,11 @@ def placement_consensus(jplace_path: str,
     placements = jplace_file["placements"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
     results =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, get_error, edge_error, fields))
-    for i,result in enumerate(results):
-        result = list(result)
-        result[fields.index("edge_num")] = int(result[fields.index("edge_num")])
-        jplace_file["placements"][i]["p"] = result
+    #for i,result in enumerate(results):
+    #    result = list(result)
+    #    result[fields.index("edge_num")] = int(result[fields.index("edge_num")])
+    #    jplace_file["placements"][i]["p"] = result
+    jplace_file["placements"] = results 
     new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_consensus.jplace"))
     with open(new_jplace_path, "w") as f:
         json.dump(jplace_file, f, indent=4)
@@ -181,28 +182,28 @@ Arguments:
                                        will use the jplace tree if node is provided.
 '''
 
-def gene_consensus(jplace_path: str,
-                   gamma: float = 1.0,
+def subgenome_consensus(jplace_path: str,
+                   dest_path: str,
                    num_threads: int = 32,
                    get_error: bool = False,
-                   ground_truth: str = None,
-                   ground_truth_tree_path: str = ""):
- 
+                   edge_error: bool = False,
+                   genome_mapper: str = ""):
+
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     
-    try:
-        if (get_error) and (ground_truth == None):
-            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
-        if (gamma <= 0):
-            raise ValueError(ERROR_GAMMA)
-    except ValueError as E:
-        print(f"Error with Argument Values: {E}")
-        exit()
-
-    results = CTree.gene_consensus(jplace_tree, tree, jplace_file["placements"], gamma, num_threads, get_error, ground_truth, ground_truth_tree_path)
+    #TODO: add a regex error handling
+    fields = jplace_file["fields"]
+    placements = jplace_file["placements"]
+    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
+    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper)
+    #TODO post-processing results
+    jplace_file["placements"] = results
+    new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_consensus.jplace"))
+    with open(new_jplace_path, "w") as f:
+        json.dump(jplace_file, f, indent=4)
     return results
 
 

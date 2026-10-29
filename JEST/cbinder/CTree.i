@@ -21,9 +21,11 @@
     
     extern vector<string> get_placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, vector<string> fields);
     
-    extern vector<vector<float>> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
+    extern vector<placement_obj> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
     
-    extern string genome_consensus (string jtree, string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, string ground_truth, string gt_tree);
+    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, vector<string> fields, string genome_map);
+    
+    extern vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
 
     extern void placement_error(string jtree, string tree_string, vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
 
@@ -46,6 +48,8 @@
 %template(LabelChildrenMap) std::map<std::string, std::vector<std::string>>;
 %template(Placement) std::vector<std::vector<float>>;
 %template(PlacementUncertainties) std::map<std::string, float>;
+%template(PlacementsList) std::vector<placement_obj>;
+
 %typemap(in) size_t{
     long long temp_val;
     if (!PyLong_Check($input)) {
@@ -104,52 +108,55 @@
     $1 = &temp;
 }
 
-%typemap (out) std::vector<placement_obj>&{
+%typemap (out) std::vector<placement_obj> {
     
-    //Py_ssize_t nplacements = PyList_Size($1);
-    size_t nplacements = $1.size();
+    vector<placement_obj> pobj = $1;
+    size_t nplacements = pobj.size();
     PyObject *list_place = PyList_New(nplacements);
     for (size_t i = 0; i < nplacements; i++){
         PyObject *pl_dict = PyDict_New();
         if (!pl_dict) SWIG_fail; 
-        PyObject *nlist = PyList_New($1[i].n.size());
-        size_t plen = $1[i].p.size();
+        PyObject *nlist = PyList_New(pobj[i].n.size());
+        size_t p_len = pobj[i].p.size();
         PyObject *plist = PyList_New(p_len);
         
         if(nlist && PyList_Check(nlist)){
-            PyObject *pname = PyUnicode_FromString($1[i].n.[0].c_str);
-            PyList_SET_ITEM(nlist, 0, pyname);
+            PyObject *pname = PyUnicode_FromString(pobj[i].n[0].c_str());
+            PyList_SET_ITEM(nlist, 0, pname);
         }
         if(plist && PyList_Check(plist)){
-            for(size_t j = 0; i < plen; i++){
-                PyObject *placement = PyList_New($1[i].p[j].size());
-                size_t pfields = $1[i].p[j].size();
+            for(size_t j = 0; j < p_len; j++){
+                PyObject *placement = PyList_New(pobj[i].p[j].size());
+                size_t pfields = pobj[i].p[j].size();
                 for (size_t k = 0; k < pfields; k++){
-                    PyObject *py_val = PyFloat_fromDouble($1[i].p[j][k]);
-                    PyList_SetItem(placement,k,py_val);
+                    PyObject *py_val = PyFloat_FromDouble(pobj[i].p[j][k]);
+                    PyList_SET_ITEM(placement,k,py_val);
                 }
-                PyList_SetItem(plist, j, placement);
+                PyList_SET_ITEM(plist, j, placement);
             }
         }
-        PyDict_SetItemString(pl_dict, "p", plist);
+        else{
+            SWIG_fail;
+        }
         PyDict_SetItemString(pl_dict, "n", nlist);
-        Py_DECREF(plist);
         Py_DECREF(nlist);
+        PyDict_SetItemString(pl_dict, "p", plist);
+        Py_DECREF(plist);
+        PyList_SET_ITEM(list_place,i,pl_dict);
     }
-    $result = pl_dict;
+    $result = list_place;
 } 
 
 
 
 %include "CTree_utils.h"
-%template(PlacementsList) std::vector<placement_obj>;
 
 %newobject label_children;
 %newobject get_random_placements;
 %newobject get_raw_uncertainty;
 %newobject get_uncertainty_pvalue;
 %newobject placement_consensus;
-%newobject gene_consensus;
+%newobject subgenome_consensus;
 
 std::vector<float> get_random_placements_uncertainty (std::string tree_string, size_t trials, size_t random_placements, size_t num_threads, bool is_path);
 std::map<std::string, std::vector<std::string>> label_children(std::string tree_string, bool is_path);
@@ -160,10 +167,12 @@ std::map<std::string,float> get_uncertainty_pvalue(std::string jtree, std::strin
 
 std::vector<std::string> get_placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads, std::vector<std::string> fields);
 
-std::vector<std::vector<float>> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
+std::vector<placement_obj> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
 
 
-std::string genome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, float gamma, size_t num_threads, bool get_error, std::string ground_truth, std::string gt_tree);
+std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads, std::vector<std::string> fields, std::string genome_map);
+
+std::vector<placement_obj> subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
 
 void placement_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string> fields);
 
