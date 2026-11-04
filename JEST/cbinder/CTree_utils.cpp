@@ -27,7 +27,11 @@ map<string, CT_NODE_T> label_to_node (compact_tree tree){
 	return lbl_to_node;
 }
 
-float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree){
+float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree, bool edge_error){
+
+	if (edge_error == true){
+		for (CT_NODE_T node = 0; node < tree.get_num_nodes(); ++node) tree.set_edge_length(node,1.0);
+	}
 	if (u == v)
 		return 0.0;
 	else if (u == tree.get_parent(v))

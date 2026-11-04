@@ -13,17 +13,17 @@
     
     extern vector<float> get_random_placements_uncertainty (string tree_string, size_t trials, size_t random_placements, size_t num_threads, bool is_path);
     
-    extern float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree);
+    extern float get_placement_error(CT_NODE_T u, CT_NODE_T v, compact_tree tree, bool edge_error);
     
     extern map<string,float> get_raw_uncertainty (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, bool is_path, size_t lwr_idx, size_t en_idx, bool rooted);
     
     extern map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>&, vector<float> random_dist, size_t num_threads, string dest_path, bool is_path, vector<string> fields, bool rooted);
     
-    extern vector<string> get_placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, vector<string> fields);
+    extern vector<string> get_placement_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_Error, vector<string> fields);
     
     extern vector<placement_obj> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
     
-    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, vector<string> fields, string genome_map);
+    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
     
     extern vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
 
@@ -31,7 +31,8 @@
 
    extern void placement_error_multilabel(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
  
-    extern vector<vector<float>> find_length(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
+    extern vector<vector<float>> find_length_pc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
+    extern vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx, string genome_map);
 
 %}
 %include <std_string.i>
@@ -165,12 +166,12 @@ std::map<std::string,float> get_raw_uncertainty (std::string jtree, std::string 
 
 std::map<std::string,float> get_uncertainty_pvalue(std::string jtree, std::string tree_string, std::vector<placement_obj>&, vector<float> random_dist, size_t num_threads, std::string dest_path, bool is_path, std::vector<std::string>, bool rooted);
 
-std::vector<std::string> get_placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads, std::vector<std::string> fields);
+std::vector<std::string> get_placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements,  size_t num_threads, std::string dest_path, bool get_error, bool edge_error,std::vector<std::string> fields);
 
 std::vector<placement_obj> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
 
 
-std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads, std::vector<std::string> fields, std::string genome_map);
+std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
 
 std::vector<placement_obj> subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
 
@@ -178,4 +179,6 @@ void placement_error(std::string jtree, std::string tree_string, std::vector<pla
 
 void placement_error_multilabel(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string>);
 
-std::vector<std::vector<float>> find_length(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
+std::vector<std::vector<float>> find_length_pc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
+
+std::vector<std::vector<float>> find_length_sc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx, std::string genome_map);

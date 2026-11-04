@@ -8,7 +8,7 @@ in Python for better usability
 #    import _CTree as CTree
 
 from . import _CTree as CTree
-from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_CONSENSUS_EDGE_ERROR, ERROR_GAMMA
+from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_REGEX
 import json
 import re
 import os
@@ -29,10 +29,11 @@ Arguments:
     tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file
 '''
 def uncertainty_score(jplace_path: str,
-                      dest_path: str,
+                      write_file: bool,
+                      dest_path: str = ".",
                       filter_queries: bool = False,
                       alpha: float = 0.05,
-                      random_placements: int = 100,
+                      random_placements: int = 20,
                       trials: int = 1000,
                       num_threads: int = 32,
                       tree_path: str = "",
@@ -89,7 +90,7 @@ def uncertainty_score(jplace_path: str,
     results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
             jplace_file["placements"], random_placements, 
             num_threads, dest_file, is_tree_path,
-            lwr_idx, edge_num_idx)
+            fields, False)
     print("Done generating uncertainty scores!")
     ## in-place filtration
     if filter_queries == True:
@@ -102,18 +103,18 @@ def uncertainty_score(jplace_path: str,
             else:
                 remaining_placements.append(jplace_file["placements"][idx])
         jplace_file["placements"] = remaining_placements
-        ##TODO Windows support or better string manipulation for writing to destination
-        #new_jplace_path = dest_path + "/"+ jplace_path.split("/")[-1].split(".")[0]+f"_filtered_{alpha}.jplace"
-        new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace"))
-        with open(new_jplace_path, "w") as f:
-            json.dump(jplace_file, f, indent=4)
-        if len(filtered_queries) > 0:
+        if write_file:
+            print("Writing to file...")
+            new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_{alpha}.jplace"))
+            with open(new_jplace_path, "w") as f:
+                json.dump(jplace_file, f, indent=4)
+            if len(filtered_queries) > 0:
             #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
-            filtered_queries_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
-            with open(filtered_queries_path, "w") as f:
-                f.write('\n'.join(filtered_queries))
+                filtered_queries_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
+                with open(filtered_queries_path, "w") as f:
+                    f.write('\n'.join(filtered_queries))
 
-    return results
+    return results, remaining_placements
 
 '''
 Summarizes multiple placements for a given query to a single placement on the tree
@@ -134,7 +135,8 @@ Arguments:
 '''
 
 def placement_consensus(jplace_path: str,
-                        dest_path: str,
+                        write_file: bool,
+                        dest_path: str = ".",
                         num_threads: int = 32,
                         get_error: bool = False,
                         edge_error: bool = False):
@@ -154,15 +156,13 @@ def placement_consensus(jplace_path: str,
     fields = jplace_file["fields"]
     placements = jplace_file["placements"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
-    results =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, get_error, edge_error, fields))
-    #for i,result in enumerate(results):
-    #    result = list(result)
-    #    result[fields.index("edge_num")] = int(result[fields.index("edge_num")])
-    #    jplace_file["placements"][i]["p"] = result
+    results =  CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, get_error, edge_error, fields)
     jplace_file["placements"] = results 
-    new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_consensus.jplace"))
-    with open(new_jplace_path, "w") as f:
-        json.dump(jplace_file, f, indent=4)
+    if write_file:
+        print("Writing to file...")
+        new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_consensus.jplace"))
+        with open(new_jplace_path, "w") as f:
+            json.dump(jplace_file, f, indent=4)
     return results
 
 '''
@@ -183,28 +183,49 @@ Arguments:
 '''
 
 def subgenome_consensus(jplace_path: str,
-                   dest_path: str,
+                   write_file: bool,
+                   dest_path: str = "",
+                   alpha: float = 0.05,
+                   random_placements: int = 20,
+                   trials: int = 1000,
                    num_threads: int = 32,
                    get_error: bool = False,
                    edge_error: bool = False,
                    genome_mapper: str = ""):
 
+    # TODO: add text file feature
+    # TODO: add a regex error handling
+    try:
+        if genome_mapper != "":
+            re.compile(genome_mapper)
+    except re.error:
+        print(ERROR_REGEX)
+        exit()
+
+    placements = uncertainty_score(jplace_path, 
+                                write_file = False,
+                                filter_queries = True,
+                                alpha = alpha,
+                                num_threads = num_threads,
+                                random_placements = random_placements,
+                                trials = trials)[1]
+    
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     
-    #TODO: add a regex error handling
     fields = jplace_file["fields"]
-    placements = jplace_file["placements"]
-    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
+    #placements = jplace_file["placements"]
+    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_error.txt"))
     results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper)
-    #TODO post-processing results
     jplace_file["placements"] = results
-    new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_consensus.jplace"))
-    with open(new_jplace_path, "w") as f:
-        json.dump(jplace_file, f, indent=4)
-    return results
+    if write_file:
+        print("Writing to file...")
+        new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_consensus.jplace"))
+        with open(new_jplace_path, "w") as f:
+            json.dump(jplace_file, f, indent=4)
+    return results, placements
 
 
 def placement_error(jplace_path: str,
@@ -236,14 +257,17 @@ def placement_edge_error():
 '''
 
 def multi_copy_consensus(jplace_path: str,
+                         write_file: bool,
+                         dest_path: str= ".",
                          alpha: float = 0.05,
                          random_placements: int = 100,
                          trials: int = 1000,
-                         gammma: float = 1.0,
-                         num_threads: int = 32):
+                         num_threads: int = 32, 
+                         genome_mapper: str = ""):
     
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
+    fields = jplace_file["fields"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     
@@ -252,15 +276,23 @@ def multi_copy_consensus(jplace_path: str,
             raise ValueError(ERROR_FILTER)
         if trials <= 0 or random_placements <= 0:
             raise ValueError(ERROR_RANDOM)
-        if (get_error) and (ground_truth == None):
-            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
-        if (gamma <= 0):
-            raise ValueError(ERROR_GAMMA)
     except ValueError as E:
         print(f"Error with Argument Values: {E}")
         exit()
+    consensus, remaining_placements = subgenome_consensus(jplace_path,
+                                        write_file = False,
+                                        alpha = alpha,
+                                        random_placements = random_placements,
+                                        trials = trials,
+                                        num_threads = num_threads,
+                                        get_error = True,
+                                        edge_error = False,
+                                        genome_mapper = genome_mapper)
 
-    
+    ## remove copies far away from consensus
+    copy_consensus =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, False, False, fields))
+
+
 def random_placement_uncertainty(tree_path: str,
                       dest_path: str,
                       random_placements: int = 100,
