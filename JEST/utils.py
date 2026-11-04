@@ -14,7 +14,7 @@ ERROR_FILTER = "ERROR: Filter percentile (alpha) must be between 0 and 1 (set fi
 ERROR_ALPHA_RANDOM_MISMATCH = "ERROR: Filter percentile (alpha) is too granular for the given Null distribution; we recommend generating another Null distribution with more trials."
 ERROR_RANDOM = "ERROR: Random placement parameters must be non-zero positive integers!"
 ERROR_CONSENSUS_EDGE_ERROR = "ERROR: Consensus Error chosen but no ground truth label was provided"
-ERROR_REGEX = "Invalid Regex pattern"
+ERROR_MAPPER = "Genome Mapper is neither a valid regex patternor a valid path to a file!"
 #ERROR_METRIC = "ERROR: Metric must either be 'edge error', 'branch length' or 'both'!"
 
 def label_internal_nodes(tree_str):

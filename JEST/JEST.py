@@ -1,11 +1,7 @@
 '''
 JEST.py wraps around the Cpp-binded functions
-in Python for better usability
+in Python for better usability while maintaining performance.
 '''
-#try:
-#    from . import _CTree as CTree
-#except ImportError:
-#    import _CTree as CTree
 
 from . import _CTree as CTree
 from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_REGEX
@@ -16,24 +12,32 @@ import math
 from pathlib import Path 
 
 '''
-Calculates uncertainty scores for a given jplace file while also providing filtering capabilities
+Calculates uncertainty scores for a given jplace file while also providing filtering capabilities based on a hyperparameter.
+Returns a modified jplace file with uncertain queries filtered out, a text file of the uncertainty scores of the queries and 
+a list of queary names that were filtered out (if any).
+
 Arguments:
-    jplace_path (Required): path to input jplace file
-    dest_path (Required): directory path  where results are output (scores, filtered queries and modified jplace files)
-    filter_queries (Optional, False by default): whether to filter queries of high uncertainty
-    alpha (Optional, 0.05 by default): filter-value cutoff percentage
-    random_placements (Optional, 100 by default): number of placements per trial when calculating 
-                                                  the uncertainty scores due to random placements
-    trials (Optional, 1000 by default): number of random placements trials
-    num_threads (Optional, 32  by default): number of parallel threads (for performance purposes)
-    tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file
+    - jplace_path (Required): path to input jplace file.
+    - write_file (Required): whether or not an output jplace file should be written.
+    - dest_path (Optional, current path by default): directory path  where results are output (scores, 
+                            filtered queries and modified jplace files).
+    - filter_queries (Optional, False by default): whether to filter queries of high uncertainty.
+    - alpha (Optional, 0.05 by default): filter-value cutoff percentage.
+    - random_placements (Optional, 10 by default): number of placements per trial when calculating 
+                                                  the uncertainty scores due to random placements.
+    - trials (Optional, 1000 by default): number of random placements trials.
+    - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes)
+    - tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file.
+    - random_path (Optional): unless a path to a null distribution is passed, the function will generate a null 
+                            distribution for uncertainty scoring; to produce a file consisting of a null distribution 
+                            based on a tree, refer to `random_placement_uncertainty`
 '''
 def uncertainty_score(jplace_path: str,
                       write_file: bool,
                       dest_path: str = ".",
                       filter_queries: bool = False,
                       alpha: float = 0.05,
-                      random_placements: int = 20,
+                      random_placements: int = 10,
                       trials: int = 1000,
                       num_threads: int = 32,
                       tree_path: str = "",
@@ -84,7 +88,6 @@ def uncertainty_score(jplace_path: str,
     fields = jplace_file["fields"]
     lwr_idx = fields.index("like_weight_ratio")
     edge_num_idx = fields.index("edge_num")
-    #print(lwr_idx, edge_num_idx)
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt"))
     #print(f"Generating uncertainty scores and writing to {dest_file}.")
     results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
@@ -109,7 +112,6 @@ def uncertainty_score(jplace_path: str,
             with open(new_jplace_path, "w") as f:
                 json.dump(jplace_file, f, indent=4)
             if len(filtered_queries) > 0:
-            #filtered_queries_path = dest_path + "/" + jplace_path.split("/")[-1].split(".")[0]+f"_filtered_queries_{alpha}.txt"
                 filtered_queries_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_filtered_queries_{alpha}.txt"))
                 with open(filtered_queries_path, "w") as f:
                     f.write('\n'.join(filtered_queries))
@@ -117,21 +119,19 @@ def uncertainty_score(jplace_path: str,
     return results, remaining_placements
 
 '''
-Summarizes multiple placements for a given query to a single placement on the tree
-Done on all queries in a jplace file
+Summarizes multiple placements for a given query to a single placement on the tree.
+Returns a modified jplace of the consensus placements as well as a text file with the weighted sum of distances 
+between the consensus and the query's placements.
 
 Arguments:
-    jplace_path (Required): path to input jplace file.
-    dest_path (Required): file path where results are output.
-    gamma (Optional, 1.0 by default): hyperparameter used for consensus calculations.
-    num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
-    get_error (Optional, False by default): whether to measure distance of consensus placement to ground truth
-                                            (in terms of number of edges); must provide  
-                                            - ground truth label  (will throw  an error if there is no label) 
-                                            - path to a newick tree (otherwise, the tree found in jplace will be used)
-    ground_truth (Optional, Required if get_error is True): the ground truth label to measure the error.
-    ground_truth_tree_path (Optional): path to tree to measure the distance between consensus placement and ground truth
+    - jplace_path (Required): path to input jplace file.
+    - write_file (Required): whether or not an output jplace file should be written.
+    - dest_path (Optional, current path by default): directory path  where results are output (errors, modified jplace files).
+    - num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
+    - get_error (Optional, False by default): whether to measure weighted distance of consensus placement to its constituents.
                                        will use the jplace tree if node is provided.
+    - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
+                                            setting it to False means it will use branch length.
 '''
 
 def placement_consensus(jplace_path: str,
@@ -145,14 +145,6 @@ def placement_consensus(jplace_path: str,
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
-    '''
-    try:
-        if (get_error) and (ground_truth == None):
-            raise ValueError(ERROR_CONSENSUS_EDGE_ERROR)
-    except ValueError as E:
-        print(f"Error with Argument Values: {E}")
-        exit()
-    '''
     fields = jplace_file["fields"]
     placements = jplace_file["placements"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_placement_error.txt"))
@@ -166,20 +158,21 @@ def placement_consensus(jplace_path: str,
     return results
 
 '''
-Summarizes multiple placements for all queries in the file to a single placement on the tree
-This function assumes that all queries in the file pertain to a single genome.
+Summarizes multiple subgenome placements to a single placement on the tree. Multiple genomes with their own subgenomes can 
+exist in the file provided a text file mapping the subgenomes to their belonging genomes or a regex pattern. Returns a modified 
+jplace of the consensus placements as well as a text file with the weighted sum of distances between the consensus and the 
+subgenomes.
 
 Arguments:
-    jplace_path (Required): path to input jplace file.
-    gamma (Optional, 1.0 by default): hyperparameter used for consensus calculations.
-    num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
-    get_error (Optional, False by default): whether to measure distance of consensus placement to ground truth
-                                            (in terms of number of edges); must provide  
-                                            - ground truth label  (will throw  an error if there is no label) 
-                                            - path to a newick tree (otherwise, the tree found in jplace will be used)
-    ground_truth (Optional, Required if get_error is True): the ground truth label to measure the error.
-    ground_truth_tree_path (Optional): path to tree to measure the distance between consensus placement and ground truth
+    - jplace_path (Required): path to input jplace file.
+    - write_file (Required): whether or not an output jplace file should be written.
+    - dest_path (Optional, current path by default): directory path  where results are output (errors, modified jplace files).
+    - num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
+    - get_error (Optional, False by default): whether to measure weighted distance of consensus placement to its constituents.
                                        will use the jplace tree if node is provided.
+    - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
+                                            setting it to False means it will use branch length.
+    - genome_map (Optional): a regex pattern or file that maps subgenomes to a genome. This is useful if there are many different                           genomes represented by the sub-genomes in the file. Passing nothing assumes that all the subgenomes be                           long to the same genome.
 '''
 
 def subgenome_consensus(jplace_path: str,
@@ -193,14 +186,13 @@ def subgenome_consensus(jplace_path: str,
                    edge_error: bool = False,
                    genome_mapper: str = ""):
 
-    # TODO: add text file feature
-    # TODO: add a regex error handling
     try:
         if genome_mapper != "":
             re.compile(genome_mapper)
     except re.error:
-        print(ERROR_REGEX)
-        exit()
+        if os.path.isfile(genome_mapper) == False:
+            print(ERROR_MAPPER)
+            exit()
 
     placements = uncertainty_score(jplace_path, 
                                 write_file = False,
@@ -216,7 +208,6 @@ def subgenome_consensus(jplace_path: str,
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     
     fields = jplace_file["fields"]
-    #placements = jplace_file["placements"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_error.txt"))
     results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper)
     jplace_file["placements"] = results
@@ -228,12 +219,25 @@ def subgenome_consensus(jplace_path: str,
     return results, placements
 
 
+'''
+Calculates placement error for queries in a given jplace file given a single or list of ground truth. 
+Placement error consists of a weighted sum of distances between the ground truth genome and the query's placements.
+
+Arguments:
+    - jplace_path (Required): path to input jplace file.
+    - dest_file (Required): file pathwhere results are placement errors are output.
+    - ground_truth (Required) ground truth label. Can be a single string or a list of strings.
+    - tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file.
+                           This is useful when the ground truth is not part of the tree used in placement.
+    - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes)
+'''
+
 def placement_error(jplace_path: str,
-                         dest_path: str,
-                         ground_truth: str | list[str],
-                         tree_path: str = "",
-                         edge_error: bool = False,
-                         num_threads: int = 32):
+                    dest_file: str,
+                    ground_truth: str | list[str],
+                    tree_path: str = "",
+                    edge_error: bool = False,
+                    num_threads: int = 32):
 
     jplace_file = read_jplace(jplace_path)
 
@@ -252,10 +256,37 @@ def placement_error(jplace_path: str,
         return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
 
 '''
-def placement_edge_error():
-    pass
+Produces a null distribution of placements given a tree. This is done by simulating trials where a fixed number of nodes areselected and a reference node is chosen amongst them. The average distance between the reference node and the other nodes is then caluclated. The null distribution is the distribution of these scores. This is useful for filtering queries based on uncertainty scores.
+
+Arguments:
+    - tree_path (Required): path to a Newick tree.
+    - dest_path (Required): directory path where results are stored.
+    - random_placements (Optional, default is 10): number of nodes selected per trial-- represents the number of placements 
+                                                per query.
+    - trials (Optional, 1000 by default): number of random placements trials.
+    - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes).
 '''
 
+def random_placement_uncertainty(tree_path: str,
+                      dest_path: str,
+                      random_placements: int = 10,
+                      trials: int = 1000,
+                      num_threads: int = 32):
+    
+    is_tree_path = True
+    tree = tree_path
+    
+    # process the mean and std using numpy instead of numpy to avoid package bloat
+    random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
+    mean = sum(random_placements)/len(random_placements)
+    std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
+    print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
+    with open(f"{dest_path}","w") as f:
+        for rp in sorted(random_placements):
+            f.write(f"{rp}\n")
+    return random_placements 
+
+'''
 def multi_copy_consensus(jplace_path: str,
                          write_file: bool,
                          dest_path: str= ".",
@@ -293,25 +324,4 @@ def multi_copy_consensus(jplace_path: str,
     copy_consensus =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, False, False, fields))
 
 
-def random_placement_uncertainty(tree_path: str,
-                      dest_path: str,
-                      random_placements: int = 100,
-                      trials: int = 1000,
-                      num_threads: int = 32):
-    
-    is_tree_path = True
-    tree = tree_path
-    
-    # process the mean and std using numpy instead of numpy to avoid package bloat
-    random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
-    mean = sum(random_placements)/len(random_placements)
-    std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
-    print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
-    with open(f"{dest_path}","w") as f:
-        for rp in sorted(random_placements):
-            f.write(f"{rp}\n")
-    return random_placements 
-
-
-
-
+'''
