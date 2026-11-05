@@ -694,7 +694,7 @@ vector<placement_obj> placement_consensus (string jtree, string tree_string, vec
 	size_t dlen_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "distal_length"));
 
 	vector<vector<float>> lengths = find_length_pc(jtree, tree_string, placements, consensus, num_threads, lwr_idx, en_idx);
-	cout << "Distal and pendant lengths obtained!\nWriting to new jplace file.\n";
+	cout << "Distal and pendant lengths obtained!\n";
 	vector<placement_obj> cplacements(placements.size(), placement_obj());
 	
 	size_t ol_threads = min(num_threads,placements.size());
@@ -957,7 +957,7 @@ vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vec
 	vector<vector<float>> lengths = find_length_sc(jtree, tree_string, placements, consensus[1], num_threads, lwr_idx, en_idx, genome_map);
 	
 	vector<placement_obj> cplacements(consensus[0].size(), placement_obj());
-	cout << "Distal and pendant lengths obtained!\nWriting to new jplace file.\n";
+	cout << "Distal and pendant lengths obtained!\n";
 	
 	for (size_t c_idx = 0; c_idx < consensus[0].size(); c_idx++){
 		placement_obj pobj({consensus[0][c_idx]}, vector<vector<float>>(1, vector<float>(fields.size(), 0.0)));
