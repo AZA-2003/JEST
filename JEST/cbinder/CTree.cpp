@@ -215,8 +215,6 @@ vector<vector<float>> find_length_pc(string jtree, string tree_string, vector<pl
 }
 
 
-
-
 void placement_error(string jtree, string tree_string, vector<placement_obj>& placements,string reference, size_t num_threads, bool edge_error, string dest_path, vector<string> fields){
 	
 	ofstream outFile(dest_path, ios::out);
@@ -228,6 +226,31 @@ void placement_error(string jtree, string tree_string, vector<placement_obj>& pl
 	tree = compact_tree(tree_string,true,true,true,0);
 
 	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	
+	string ref_genome;
+	ifstream ref_file;
+	map<string, string> subgenome_to_ref;
+	bool single_ref;
+   	if (filesystem::exists(reference)){	
+		ref_file.open(reference);
+		string rows;
+		while(getline(ref_file, rows)){
+			istringstream iss(rows);
+			string field;
+			vector<string> row_ent;
+			while(getline(iss,field,'\t')){
+				row_ent.push_back(field);
+			}
+			subgenome_to_ref[row_ent[0]] = row_ent[1];
+		}
+		ref_file.close();
+		single_ref = false;
+	}
+	else{
+		ref_genome = reference;
+	}
+	
+	
 	if (edge_error == true){
 		outFile << "name\treference\tedge error\n";
 	}
@@ -256,9 +279,17 @@ void placement_error(string jtree, string tree_string, vector<placement_obj>& pl
 			float likelihood = placement.p[p_idx][lwr_idx];
 			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
 			lbl_placement = jtree_split[0];
-			weighted_error += likelihood * get_placement_error(lbl_to_node[lbl_placement], 
-							lbl_to_node[reference], tree, edge_error);
+			#pragma omp critical
+			{
+				if (single_ref)
+					weighted_error += likelihood * get_placement_error(lbl_to_node[lbl_placement], 
+					lbl_to_node[reference], tree, edge_error);
+				else
+					weighted_error += likelihood * get_placement_error(lbl_to_node[lbl_placement], 
+					lbl_to_node[subgenome_to_ref[placement.n[0]]], tree, edge_error);
+			}
 		}
+
 
 		#pragma omp critical
 		outFile << placement.n[0] << "\t" << weighted_error << "\n";
@@ -267,8 +298,8 @@ void placement_error(string jtree, string tree_string, vector<placement_obj>& pl
 	outFile.close();
 }
 
-// TODO will add some error checks for the list to correspond to the placement size and ensure proper swig translation
-void placement_error_multilabel(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads, bool edge_error, string dest_path, vector<string> fields){
+// TODO add some error checks for the list to correspond to the placement size and ensure proper swig translation
+void placement_error_consensus(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads, bool edge_error, string dest_path, vector<string> fields){
 	
 	ofstream outFile(dest_path, ios::out);
 	compact_tree tree;
@@ -344,7 +375,7 @@ vector<float> get_random_placements_uncertainty (string tree_string, size_t tria
 	return uncertainties;
 }
 map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<placement_obj>& placements, 
-								size_t num_threads, bool is_path,
+								size_t num_threads,
 								size_t lwr_idx, size_t en_idx, bool rooted){
 	/** placment should consist of n and p where 
 	 * n is the name of the placement 
@@ -360,14 +391,8 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 	 * likelihood weight ratio: index 4 
 	 * distance: index 5
 	 * **/
-	compact_tree tree;
-	if (is_path)
-		tree = compact_tree(tree_string,true,true,true,0);
-	else
-		tree = compact_tree(tree_string.c_str(),false,true,true,0);
+	compact_tree tree = compact_tree(tree_string.c_str(),false,true,true,0);
 	
-	// To be removed
-	//for (CT_NODE_T node = 0; node < tree.get_num_nodes(); ++node) tree.set_edge_length(node,1.0);
 	map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
 	vector<pair<string,float>> uncertainty_scores(placements.size());
 	size_t ol_threads = min(num_threads,placements.size());
@@ -444,12 +469,12 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vector<placement_obj>& placements, 
 					vector<float> random_dist, 
 					size_t num_threads, string dest_path, 
-					bool is_path,vector<string> fields, bool rooted){
+					vector<string> fields, bool rooted){
 	
 	size_t en_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "edge_num"));
 	size_t lwr_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "like_weight_ratio"));
 	ofstream outFile(dest_path, ios::out);
-	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,is_path, lwr_idx, en_idx, rooted);
+	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,lwr_idx, en_idx, rooted);
 	float rp_mean = accumulate(random_dist.begin(), random_dist.end(), 0.0) /random_dist.size();
 	auto mean_center_square = [&rp_mean](float& v){v = (v-rp_mean)*(v-rp_mean);};
 	vector<float> rp_mean_center(random_dist);

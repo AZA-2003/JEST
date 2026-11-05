@@ -4,7 +4,7 @@ in Python for better usability while maintaining performance.
 '''
 
 from . import _CTree as CTree
-from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_REGEX
+from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM, ERROR_MAPPER
 import json
 import re
 import os
@@ -27,7 +27,6 @@ Arguments:
                                                   the uncertainty scores due to random placements.
     - trials (Optional, 1000 by default): number of random placements trials.
     - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes)
-    - tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file.
     - random_path (Optional): unless a path to a null distribution is passed, the function will generate a null 
                             distribution for uncertainty scoring; to produce a file consisting of a null distribution 
                             based on a tree, refer to `random_placement_uncertainty`
@@ -40,7 +39,6 @@ def uncertainty_score(jplace_path: str,
                       random_placements: int = 10,
                       trials: int = 1000,
                       num_threads: int = 32,
-                      tree_path: str = "",
                       random_dist_path = ""):
     
     if os.path.getsize(jplace_path) == 0:
@@ -52,30 +50,30 @@ def uncertainty_score(jplace_path: str,
             raise ValueError(ERROR_RANDOM)
     except ValueError as E:
         print(f"Error with Argument Values: {E}.")
-        exit()
+        raise
 
     if filter_queries:
         trials = max(trials, 10/alpha)
-    
-    jplace_file = read_jplace(jplace_path)
+    try:
+        jplace_file = read_jplace(jplace_path)
+    except Exception as E:
+        raise
+
     if len(jplace_file["placements"]) == 0:
         print(f"{jplace_path} appears to have no placements, exiting now.")
+        return {}
 
     jplace_tree = jplace_file["tree"]
-    if tree_path == "":
-        jplace_tree = label_internal_nodes(jplace_tree)
-        tree = re.sub(r"{[0-9]+}","",jplace_tree)
-        is_tree_path = False
-    else:
-        is_tree_path = True
-        tree = tree_path
+    jplace_tree = label_internal_nodes(jplace_tree)
+    tree = re.sub(r"{[0-9]+}","",jplace_tree)
+    is_tree_path = False
     
     # process the mean and std using numpy instead of numpy to avoid package bloat
-    if random_dist_path == "":
-        print(f"Generating {trials} number of trials for Null distribution.")
+    if os.path.isfile(random_dist_path) == False:
+        print(f"No random distribution path found! Generating {trials} number of trials for Null distribution.")
         random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
     else:
-        print(f"Reading the Null distribution from {random_dist_path}.")
+        print(f"Reading the null distribution from {random_dist_path}.")
         with open(random_dist_path, "r") as f:
             random_placements = [float(line.strip()) for line in f]
         if len(random_placements) * alpha < 1:
@@ -89,10 +87,10 @@ def uncertainty_score(jplace_path: str,
     lwr_idx = fields.index("like_weight_ratio")
     edge_num_idx = fields.index("edge_num")
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_uncertainty.txt"))
-    #print(f"Generating uncertainty scores and writing to {dest_file}.")
+    print(f"Generating uncertainty scores and writing to {dest_file}.")
     results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
             jplace_file["placements"], random_placements, 
-            num_threads, dest_file, is_tree_path,
+            num_threads, dest_file,
             fields, False)
     print("Done generating uncertainty scores!")
     ## in-place filtration
@@ -116,7 +114,8 @@ def uncertainty_score(jplace_path: str,
                 with open(filtered_queries_path, "w") as f:
                     f.write('\n'.join(filtered_queries))
 
-    return results, remaining_placements
+        return results, remaining_placements
+    return results
 
 '''
 Summarizes multiple placements for a given query to a single placement on the tree.
@@ -234,7 +233,7 @@ Arguments:
 
 def placement_error(jplace_path: str,
                     dest_file: str,
-                    ground_truth: str | list[str],
+                    ground_truth: str,
                     tree_path: str = "",
                     edge_error: bool = False,
                     num_threads: int = 32):
@@ -250,10 +249,12 @@ def placement_error(jplace_path: str,
         is_tree_path = True
         tree = tree_path
 
+    '''
     if type(ground_truth) is list: 
         return CTree.placement_error_multilabel(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
     else:
-        return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
+    '''
+    return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
 
 '''
 Produces a null distribution of placements given a tree. This is done by simulating trials where a fixed number of nodes areselected and a reference node is chosen amongst them. The average distance between the reference node and the other nodes is then caluclated. The null distribution is the distribution of these scores. This is useful for filtering queries based on uncertainty scores.
