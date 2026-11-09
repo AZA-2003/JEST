@@ -23,13 +23,13 @@
     
     extern vector<placement_obj> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
     
-    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
+    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy);
     
-    extern vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
+    extern vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy);
 
     extern void placement_error(string jtree, string tree_string, vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
 
-   extern void placement_error_consensus(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
+   extern map<string, map<string, float>> placement_error_subgenome(string jtree, string tree_string, vector<placement_obj>& placements, map<string, string> reference, size_t num_threads,string dest_path,bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy);
  
     extern vector<vector<float>> find_length_pc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
     extern vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx, string genome_map);
@@ -49,6 +49,7 @@
 %template(LabelChildrenMap) std::map<std::string, std::vector<std::string>>;
 %template(Placement) std::vector<std::vector<float>>;
 %template(PlacementUncertainties) std::map<std::string, float>;
+%template(ConsensusErrors) std::map<std::string, std::map<std::string, float>>;
 %template(PlacementsList) std::vector<placement_obj>;
 
 %typemap(in) size_t{
@@ -171,13 +172,13 @@ std::vector<std::string> get_placement_consensus (std::string jtree, std::string
 std::vector<placement_obj> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
 
 
-std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
+std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map, bool multi_copy);
 
-std::vector<placement_obj> subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
+std::vector<placement_obj> subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map, bool multi_copy);
 
 void placement_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string> fields);
 
-void placement_error_consensus(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string>);
+std::map<std::string, std::map<std::string, float>> placement_error_subgenome(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::map<std::string, std::string> reference, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map, bool multi_copy);
 
 std::vector<std::vector<float>> find_length_pc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
 

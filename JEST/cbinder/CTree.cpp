@@ -299,21 +299,53 @@ void placement_error(string jtree, string tree_string, vector<placement_obj>& pl
 }
 
 // TODO add some error checks for the list to correspond to the placement size and ensure proper swig translation
-void placement_error_consensus(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads, bool edge_error, string dest_path, vector<string> fields){
+map<string, map<string, float>> placement_error_subgenome(string jtree, string tree_string, vector<placement_obj>& placements, map<string,string> reference, size_t num_threads,string dest_path, bool get_error, bool edge_error,vector<string> fields, string genome_map, bool multi_copy){
 	
-	ofstream outFile(dest_path, ios::out);
-	compact_tree tree;
 	size_t en_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "edge_num"));
 	size_t lwr_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "like_weight_ratio"));
 
-	tree = compact_tree(tree_string,false,true,true,0);
+	compact_tree tree = compact_tree(tree_string,false,true,true,0);
 	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
-	if (edge_error == true){
-		outFile << "name\treference\tedge error\n";
+	regex gmap;
+	ifstream gmap_file;
+	map<string, string> subgenome_to_genome;
+	bool is_regex;
+
+   	if (filesystem::exists(genome_map)){	
+		gmap_file.open(genome_map);
+		string grows;
+		while(getline(gmap_file, grows)){
+			istringstream iss(grows);
+			string field;
+			vector<string> row_ent;
+			while(getline(iss,field,'\t')){
+				row_ent.push_back(field);
+			}
+			subgenome_to_genome[row_ent[0]] = row_ent[1];
+		}
+		gmap_file.close();
+		is_regex = false;
 	}
 	else{
-		outFile << "name\treference\tbranch length error\n";
+		if (genome_map != "")
+			gmap = regex(genome_map);
+		else
+			gmap = regex(".+");
+		is_regex = true;
+	}	
+	ofstream outFile;
+	if (get_error == true){
+		outFile.open(dest_path, ios::out);
+		if (edge_error == true){
+			outFile << "name\tconsensus\tedge error\n";
+		}
+		else{
+			outFile << "name\tconsensus\tbranch length error\n";
+		}
 	}
+	// Redesigned to handle multiple genomes with multiple subgenomes
+	map<string, map<string,float>> subgenome_dist;
+	map<string, float> subgenome_copy;
 	size_t ol_threads = min(num_threads,placements.size());
 	omp_set_nested(1);
 	omp_set_num_threads(ol_threads);
@@ -322,10 +354,8 @@ void placement_error_consensus(string jtree, string tree_string, vector<placemen
 		placement_obj & placement = placements[idx];
 		string lbl_placement;
 		if (placement.p.size() == 0){
-			outFile << placement.n[0] << "\t" << reference[idx] << "\t" << "N/A\n";
 			continue;
 		}
-		float weighted_error = 0.0;
 		for (size_t p_idx = 0; p_idx < placement.p.size(); p_idx++){
 			int edge = placement.p[p_idx][en_idx];
 			int ixe = jtree.find("{"+to_string(edge)+"}");
@@ -336,14 +366,31 @@ void placement_error_consensus(string jtree, string tree_string, vector<placemen
 			float likelihood = placement.p[p_idx][lwr_idx];
 			vector<string> jtree_split = split_string(jtree.substr(ixs+1, ixe-ixs-1), ':');
 			lbl_placement = jtree_split[0];
-			weighted_error += likelihood * get_placement_error(lbl_to_node[lbl_placement], 
-							lbl_to_node[reference[idx]],tree, edge_error);
+			#pragma omp critical
+			{
+				if(is_regex == true){
+					smatch gmatch;
+					regex_match(placement.n[0], gmatch, gmap);
+					subgenome_dist[gmatch.str(1)][gmatch.str(2)] = get_placement_error(lbl_to_node[lbl_placement], lbl_to_node[reference[gmatch.str(1)]],tree, edge_error);
+					/*
+					if(multi_copy == true){
+						subgenome_copy[gmatch.str(2)] += 1;	
+					}
+					*/		
+				}
+				else{
+					subgenome_dist[subgenome_to_genome[placement.n[0]]][placement.n[0]] = get_placement_error(lbl_to_node[lbl_placement], lbl_to_node[reference[subgenome_to_genome[placement.n[0]]]], tree, edge_error);	
+					/*
+					if(multi_copy == true){
+						subgenome_copy[placement.n[0]] += 1;	
+					}
+					*/			
+				}
+			}
 		}
-		#pragma omp critical
-		outFile << placement.n[0] << "\t" << reference[idx] << "\t" << weighted_error << "\n";
-		
 	}
 	outFile.close();
+	return subgenome_dist;
 }
 
 
@@ -358,20 +405,21 @@ vector<float> get_random_placements_uncertainty (string tree_string, size_t tria
 	vector<string> tree_labels = tree.get_labels();
 	vector<float> uncertainties(trials);
 	uncertainties.reserve(trials);
+	mt19937 sample_seed(48);
 	CT_NODE_T ref_placement;
     omp_set_num_threads(num_threads);
-	#pragma omp parallel for
+	#pragma omp parallel for shared(sample_seed)
 	for (size_t i = 0; i < trials; i++){
 		vector<string> placements;
 		vector<float> ref_distances;	
-		sample(tree_labels.begin(), tree_labels.end(), back_inserter(placements), random_placements,mt19937{random_device{}()});
+		sample(tree_labels.begin(), tree_labels.end(), back_inserter(placements), random_placements, sample_seed);
 		ref_placement = lbl_to_node[placements[rand()%random_placements]];
 		for (size_t j = 0; j < random_placements; j++){
 			ref_distances.push_back(abs(tree.calc_dist(ref_placement,lbl_to_node[placements[j]])));
 		}
 		uncertainties[i] = accumulate(ref_distances.begin(), ref_distances.end(),0.0)/random_placements;
 	}
-	//sort(uncertainties.begin(), uncertainties.end());
+	sort(uncertainties.begin(), uncertainties.end());
 	return uncertainties;
 }
 map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<placement_obj>& placements, 
@@ -481,19 +529,23 @@ map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vecto
 	for_each(rp_mean_center.begin(), rp_mean_center.end(), mean_center_square);
 	float rp_std = sqrt(accumulate(rp_mean_center.begin(), rp_mean_center.end(), 0.)/rp_mean_center.size());
 	//cout << rp_mean <<"\t"<< rp_std<<"\n";
-	auto normalize_rd = [&rp_mean, &rp_std](float&  v) {v = (v-rp_mean)/(rp_std+1e-5f);};
-	auto normalize = [&rp_mean, &rp_std](float  v) {return (v-rp_mean)/(rp_std+1e-5f);};
+	auto normalize_rd = [&rp_mean, &rp_std](float&  v) {v = (v-rp_mean)/(rp_std+1e-8f);};
+	auto normalize = [&rp_mean, &rp_std](float  v) {return (v-rp_mean)/(rp_std+1e-8f);};
 	//auto normalize_rd = [&rp_mean, &rp_std](float&  v) {v = (v/(rp_mean+1e-8f));};
 	//auto normalize = [&rp_mean, &rp_std](float  v) {return (v/(rp_mean+1e-8f));};
 	//auto get_pvalue = [&rp_mean, &rp_std](float kv) {return 0.5+0.5*erf((kv-rp_mean)*M_SQRT1_2/(rp_std+1e-8f));};
 	for_each(random_dist.begin(), random_dist.end(), normalize_rd);
 	map<string,float> pval_uncertainties;
 	outFile << "name\tuncertainty raw score\tuncertainty normalized\tuncertainty p-value\n";
-	setprecision(4);
-	for(auto it = uncertainties.begin(); it != uncertainties.end(); ++it){
+	setprecision(6);
+	//for(auto it = uncertainties.begin(); it != uncertainties.end(); ++it){
+	#pragma omp parallel for
+	for(size_t it_idx = 0; it_idx < placements.size(); it_idx++){
+		string placement_name = placements[it_idx].n[0];
 		//cout << it->second <<"\t"<< normalize(it->second) << "\n";
-		pval_uncertainties[it->first] = Percentile(random_dist, normalize(it->second));
-		outFile << it->first << "\t" << it->second <<"\t"<< normalize(it->second) <<"\t" << pval_uncertainties[it->first] << "\n";
+		pval_uncertainties[placement_name] = Percentile(random_dist, normalize(uncertainties[placement_name]));
+		#pragma omp critical
+		outFile << placement_name << "\t" << uncertainties[placement_name] <<"\t"<< normalize(uncertainties[placement_name]) <<"\t" << pval_uncertainties[placement_name] << "\n";
 	}
 	outFile.close();
 	return pval_uncertainties;
@@ -724,7 +776,7 @@ vector<placement_obj> placement_consensus (string jtree, string tree_string, vec
  * 	0th index: vector of genomes
  * 	1st index: vector of consensus placement
  */
-vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map){
+vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy){
 	
 	size_t en_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "edge_num"));
 	size_t lwr_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "like_weight_ratio"));
@@ -767,15 +819,16 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 	if (get_error == true){
 		outFile.open(dest_path, ios::out);
 		if (edge_error == true){
-			outFile << "name\treference\tedge error\n";
+			outFile << "name\tconsensus\tedge error\n";
 		}
 		else{
-			outFile << "name\treference\tbranch length error\n";
+			outFile << "name\tconsensus\tbranch length error\n";
 		}
 	}
 	// Redesigned to handle multiple genomes with multiple subgenomes
 	map<string, map<string,float>> lbl_to_l_ratio;
 	map<string, float> p_l_ratio_sum;
+	map<string, float> subgenome_copy;
 
 	size_t ol_threads = min(num_threads, placements.size());
 	omp_set_num_threads(ol_threads);
@@ -797,12 +850,31 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 				if (is_regex == true){
 					smatch gmatch;
 					regex_match(placement.n[0], gmatch, gmap);
-					p_l_ratio_sum[gmatch.str(1)] += likelihood;
-					lbl_to_l_ratio[gmatch.str(1)][lbl_placement] += likelihood;
+					if (multi_copy == true){
+						p_l_ratio_sum[gmatch.str(1)] = (p_l_ratio_sum[gmatch.str(1)] * subgenome_copy[gmatch.str(2)] + likelihood);
+						lbl_to_l_ratio[gmatch.str(1)][lbl_placement] = (lbl_to_l_ratio[gmatch.str(1)][lbl_placement] * subgenome_copy[gmatch.str(2)] + likelihood);
+						subgenome_copy[gmatch.str(2)] += 1;
+						p_l_ratio_sum[gmatch.str(1)] /= subgenome_copy[gmatch.str(2)];
+						lbl_to_l_ratio[gmatch.str(1)][lbl_placement] /= subgenome_copy[gmatch.str(2)];
+					}
+					else{
+						p_l_ratio_sum[gmatch.str(1)] += likelihood;
+						lbl_to_l_ratio[gmatch.str(1)][lbl_placement] += likelihood;
+					}
 				}
 				else{
-					p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] += likelihood;
-					lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] += likelihood;
+					if (multi_copy == true){
+						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] = (p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] * subgenome_copy[placement.n[0]] + likelihood);
+						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] = (lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] * subgenome_copy[placement.n[0]] + likelihood);
+						subgenome_copy[placement.n[0]] += 1;
+						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] /= subgenome_copy[placement.n[0]];
+						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] /= subgenome_copy[placement.n[0]];
+					}
+					else{
+						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] += likelihood;
+						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] += likelihood;
+				
+					}
 				}
 			}
 		}
@@ -931,22 +1003,24 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 		consensus[1][c_idx] = jest_label;
 		c_idx+=1;
 		if (get_error == true){
-			float weighted_error = 0.0;
+			float con_error = 0.0;
 			for (size_t p_idx = 0; p_idx < p_lbl.size(); p_idx++){
-				weighted_error = get_placement_error(lbl_to_nd[jest_label], lbl_to_nd[p_lbl[p_idx]], tree, edge_error) * p_l_ratio[p_idx];
+				con_error += get_placement_error(lbl_to_nd[jest_label], lbl_to_nd[p_lbl[p_idx]], tree, edge_error) * p_l_ratio[p_idx];
 			}
 			#pragma omp critical
-			outFile << genome << "\t" << jest_label << "\t" << weighted_error << "\n";
+			{
+				outFile << genome <<"\t"<< jest_label << "\t" << con_error << "\n";
+			}
 		}
 	}
 	outFile.close();
 	return consensus;
 }
 
-vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map){
+vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy){
 
 	cout << "Obtaining Sub-genome Consensus!\n";
-	vector<vector<string>> consensus = get_subgenome_consensus(jtree, tree_string, placements, num_threads, dest_path, get_error, edge_error, fields, genome_map);
+	vector<vector<string>> consensus = get_subgenome_consensus(jtree, tree_string, placements, num_threads, dest_path, get_error, edge_error, fields, genome_map, multi_copy);
 	cout << "Found subgenomes for " << consensus[0].size() << " different genomes in file!\n";
 	cout << "Consensus Obtained!\nObtaining distal and pendant lengths!\n";
 	size_t en_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "edge_num"));

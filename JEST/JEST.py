@@ -8,6 +8,8 @@ from .utils import label_internal_nodes,read_jplace, ERROR_FILTER, ERROR_RANDOM,
 import json
 import re
 import os
+import typer
+from typing import Annotated
 import math
 from pathlib import Path 
 
@@ -22,7 +24,7 @@ Arguments:
     - dest_path (Optional, current path by default): directory path  where results are output (scores, 
                             filtered queries and modified jplace files).
     - filter_queries (Optional, False by default): whether to filter queries of high uncertainty.
-    - alpha (Optional, 0.05 by default): filter-value cutoff percentage.
+    - alpha (Optional, 0.05 by default): uncertainty-value cutoff.
     - random_placements (Optional, 10 by default): number of placements per trial when calculating 
                                                   the uncertainty scores due to random placements.
     - trials (Optional, 1000 by default): number of random placements trials.
@@ -31,15 +33,23 @@ Arguments:
                             distribution for uncertainty scoring; to produce a file consisting of a null distribution 
                             based on a tree, refer to `random_placement_uncertainty`
 '''
-def uncertainty_score(jplace_path: str,
-                      write_file: bool,
-                      dest_path: str = ".",
-                      filter_queries: bool = False,
-                      alpha: float = 0.05,
-                      random_placements: int = 10,
-                      trials: int = 1000,
-                      num_threads: int = 32,
-                      random_dist_path = ""):
+def uncertainty_score(jplace_path: Annotated[str, typer.Argument(help = "path to input jplace file.", show_default = False,
+                                     metavar = "-i")],
+                      write_file:  Annotated[bool, typer.Argument(help = "whether or not an output jplace file should be written.", show_default = False, 
+                                    metavar = "-w")],
+                      dest_path:  Annotated[str, typer.Option(help = "directory path  where results are output.", show_default = True,
+                                    metavar = "-o")] = ".",
+                      filter_queries: Annotated[bool, typer.Option(help = "whether to filter queries past an uncertainty threshold.", show_default = True,
+                                    metavar = "-f")] = False,
+                      alpha: Annotated[str, typer.Option(help = "filter-value cutoff percentage.", show_default = True,
+                                    metavar = "-a")] = 0.05,
+                      random_placements: Annotated[str, typer.Option(help = "number of placements per one trial of random placement.", show_default = True, metavar = "-rp")] = 10,
+                      trials:  Annotated[str, typer.Option(help = "number of random placements trials.", show_default = True,
+                                        metavar = "-t")] = 1000,
+                      num_threads:  Annotated[str, typer.Option(help = "number of parallel threads (for performance purposes)", show_default = True,
+                                        metavar = "-n")] = 1,
+                      random_dist_path: Annotated[str, typer.Option(help = "path to a txt file representing the null distribution.", show_default = False,
+                                        metavar = "-r")] = ""):
     
     if os.path.getsize(jplace_path) == 0:
         print(f"{jplace_path} appears to be empty, exiting now.")
@@ -167,11 +177,14 @@ Arguments:
     - write_file (Required): whether or not an output jplace file should be written.
     - dest_path (Optional, current path by default): directory path  where results are output (errors, modified jplace files).
     - num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
-    - get_error (Optional, False by default): whether to measure weighted distance of consensus placement to its constituents.
-                                       will use the jplace tree if node is provided.
+    - get_error (Optional, False by default): whether to measure distance of consensus placement to each of its constituents.
     - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
                                             setting it to False means it will use branch length.
-    - genome_map (Optional): a regex pattern or file that maps subgenomes to a genome. This is useful if there are many different                           genomes represented by the sub-genomes in the file. Passing nothing assumes that all the subgenomes be                           long to the same genome.
+    - genome_map (Optional): a regex pattern or file that maps subgenomes to a genome. 
+                            This is useful if there are many different genomes represented by the sub-genomes in the file. 
+                            Passing nothing assumes that all the subgenomes belong to the same genome.
+    - multi_copy (Optional, False by default): whether the subgenomes have copies or not; this affects consensus calculations as the their 
+                                                contributions are equally split amongst each other.
 '''
 
 def subgenome_consensus(jplace_path: str,
@@ -183,7 +196,8 @@ def subgenome_consensus(jplace_path: str,
                    num_threads: int = 32,
                    get_error: bool = False,
                    edge_error: bool = False,
-                   genome_mapper: str = ""):
+                   genome_mapper: str = "",
+                   multi_copy: bool = False):
 
     try:
         if genome_mapper != "":
@@ -208,7 +222,7 @@ def subgenome_consensus(jplace_path: str,
     
     fields = jplace_file["fields"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_error.txt"))
-    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper)
+    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper, multi_copy)
     jplace_file["placements"] = results
     if write_file:
         print("Writing to file...")
@@ -311,15 +325,7 @@ def multi_copy_consensus(jplace_path: str,
     except ValueError as E:
         print(f"Error with Argument Values: {E}")
         exit()
-    consensus, remaining_placements = subgenome_consensus(jplace_path,
-                                        write_file = False,
-                                        alpha = alpha,
-                                        random_placements = random_placements,
-                                        trials = trials,
-                                        num_threads = num_threads,
-                                        get_error = True,
-                                        edge_error = False,
-                                        genome_mapper = genome_mapper)
+    consensus = list(CTree.get_subgenome_consensus(##TODO))    
 
     ## remove copies far away from consensus
     copy_consensus =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, False, False, fields))
