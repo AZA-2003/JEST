@@ -13,5 +13,8 @@ setup(
     'JEST': ['JEST/_CTree.so'],
     },
     zip_safe=False,
-    install_requires=[]
+    install_requires=[],
+    entry_points={
+        'console_scripts': ["JEST=JEST.JEST:app",]
+                }
 )

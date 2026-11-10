@@ -12,6 +12,9 @@ import typer
 from typing import Annotated
 import math
 from pathlib import Path 
+import typer
+
+app = typer.Typer(help="JEST library commands",no_args_is_help=True)
 
 '''
 Calculates uncertainty scores for a given jplace file while also providing filtering capabilities based on a hyperparameter.
@@ -33,24 +36,20 @@ Arguments:
                             distribution for uncertainty scoring; to produce a file consisting of a null distribution 
                             based on a tree, refer to `random_placement_uncertainty`
 '''
-def uncertainty_score(jplace_path: Annotated[str, typer.Argument(help = "path to input jplace file.", show_default = False,
-                                     metavar = "-i")],
-                      write_file:  Annotated[bool, typer.Argument(help = "whether or not an output jplace file should be written.", show_default = False, 
-                                    metavar = "-w")],
-                      dest_path:  Annotated[str, typer.Option(help = "directory path  where results are output.", show_default = True,
-                                    metavar = "-o")] = ".",
-                      filter_queries: Annotated[bool, typer.Option(help = "whether to filter queries past an uncertainty threshold.", show_default = True,
-                                    metavar = "-f")] = False,
-                      alpha: Annotated[str, typer.Option(help = "filter-value cutoff percentage.", show_default = True,
-                                    metavar = "-a")] = 0.05,
-                      random_placements: Annotated[str, typer.Option(help = "number of placements per one trial of random placement.", show_default = True, metavar = "-rp")] = 10,
-                      trials:  Annotated[str, typer.Option(help = "number of random placements trials.", show_default = True,
-                                        metavar = "-t")] = 1000,
-                      num_threads:  Annotated[str, typer.Option(help = "number of parallel threads (for performance purposes)", show_default = True,
-                                        metavar = "-n")] = 1,
-                      random_dist_path: Annotated[str, typer.Option(help = "path to a txt file representing the null distribution.", show_default = False,
-                                        metavar = "-r")] = ""):
+@app.command()
+def uncertainty_score(jplace_path: Annotated[str, typer.Option("-i","--in",help = "path to input jplace file.", show_default=False)],
+                      write_file:  Annotated[bool, typer.Option("-w","--write-to-file", help = "whether or not an output jplace file should be written.", show_default = False)],
+                      dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
+                      filter_queries: Annotated[bool, typer.Option("-f","--filter", help = "whether to filter queries past an uncertainty threshold.", show_default = True)] = False,
+                      alpha: Annotated[float, typer.Option("-a","--alpha", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
+                      random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
+                      trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
+                      num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes)", show_default = True)] = 1,
+                      random_dist_path: Annotated[str, typer.Option("-r","--random-dist-path", help = "path to a txt file representing the null distribution.", show_default = False)] = ""):
     
+    """
+    Calculates uncertainty scores for a given jplace file while also providing filtering capabilities.
+    """
     if os.path.getsize(jplace_path) == 0:
         print(f"{jplace_path} appears to be empty, exiting now.")
     try:
@@ -62,8 +61,8 @@ def uncertainty_score(jplace_path: Annotated[str, typer.Argument(help = "path to
         print(f"Error with Argument Values: {E}.")
         raise
 
-    if filter_queries:
-        trials = max(trials, 10/alpha)
+    #if filter_queries:
+    #    trials = max(trials, int(10/alpha))
     try:
         jplace_file = read_jplace(jplace_path)
     except Exception as E:
@@ -142,14 +141,17 @@ Arguments:
     - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
                                             setting it to False means it will use branch length.
 '''
+@app.command()
+def placement_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",help = "path to input jplace file.", show_default = False)],
+                        write_file: Annotated[bool, typer.Option("-w", "--write-to-file", help = "whether or not an output jplace file should be written.", show_default = False)],
+                        dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
+                        num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes).", show_default = True)] = 1,
+                        get_error: Annotated[bool, typer.Option("-e","--get-error", help = "whether to measure weighted distance of consensus to its constituents.", show_default = True)] = False,
+                        edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False):
 
-def placement_consensus(jplace_path: str,
-                        write_file: bool,
-                        dest_path: str = ".",
-                        num_threads: int = 32,
-                        get_error: bool = False,
-                        edge_error: bool = False):
-
+    """
+    Summarizes multiple placements for a given query to a single placement on the tree.
+    """
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
@@ -187,23 +189,28 @@ Arguments:
                                                 contributions are equally split amongst each other.
 '''
 
-def subgenome_consensus(jplace_path: str,
-                   write_file: bool,
-                   dest_path: str = "",
-                   alpha: float = 0.05,
-                   random_placements: int = 20,
-                   trials: int = 1000,
-                   num_threads: int = 32,
-                   get_error: bool = False,
-                   edge_error: bool = False,
-                   genome_mapper: str = "",
-                   multi_copy: bool = False):
+@app.command()
+def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",help = "path to input jplace file.", show_default = False)],
+                        write_file: Annotated[bool, typer.Option("-w", "--write-to-file", help = "whether or not an output jplace file should be written.", show_default = False)],
+                        dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
+                        alpha: Annotated[float, typer.Option("-a","--alpha", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
+                        random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
+                        trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
+                        num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes)", show_default = True)] = 1,
+                        random_dist_path: Annotated[str, typer.Option("-r","--random-dist-path", help = "path to a txt file representing the null distribution.", show_default = False)] = "", 
+                        get_error: Annotated[bool, typer.Option("-e","--get-error", help = "whether to measure weighted distance of consensus to its constituents.", show_default = True)] = False,
+                        edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False,
+                        genome_map: Annotated[str, typer.Option("-g", "--genome-map", help = "regex pattern or file that maps subgenomes to genomes.\n Passing nothing assumes that all subgenomes belong to the same genome.", show_default = True)]= "",
+                        multi_copy: Annotated[bool, typer.Option("-m", "--multi-copy", "--multi", help = "whether the subgenomes are single or multicopy.\n Multicopied genomes have their contributions to the consensus split among them.")] = False):
 
+    """
+    Summarizes multiple subgenome (contigs, genes, etc..) placements to a single placement on the tree. 
+    """
     try:
-        if genome_mapper != "":
-            re.compile(genome_mapper)
+        if genome_map != "":
+            re.compile(genome_map)
     except re.error:
-        if os.path.isfile(genome_mapper) == False:
+        if os.path.isfile(genome_map) == False:
             print(ERROR_MAPPER)
             exit()
 
@@ -222,7 +229,7 @@ def subgenome_consensus(jplace_path: str,
     
     fields = jplace_file["fields"]
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_error.txt"))
-    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_mapper, multi_copy)
+    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_map, multi_copy)
     jplace_file["placements"] = results
     if write_file:
         print("Writing to file...")
@@ -233,25 +240,28 @@ def subgenome_consensus(jplace_path: str,
 
 
 '''
-Calculates placement error for queries in a given jplace file given a single or list of ground truth. 
-Placement error consists of a weighted sum of distances between the ground truth genome and the query's placements.
+Calculates placement error for queries in a given jplace file given a single or list of reference placement. 
+Placement error consists of a weighted sum of distances between the reference placement and the query's placements.
 
 Arguments:
     - jplace_path (Required): path to input jplace file.
     - dest_file (Required): file pathwhere results are placement errors are output.
-    - ground_truth (Required) ground truth label. Can be a single string or a list of strings.
+    - placement_label (Required) placement label. Can be a single single placement or a file path for multiple placements.
     - tree_path (Optional): unless a path to newick tree is passed, the function uses the tree found in the jplace file.
                            This is useful when the ground truth is not part of the tree used in placement.
-    - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes)
+    - num_threads (Optional, 1  by default): number of parallel threads (for performance purposes)
 '''
+@app.command()
+def placement_error(jplace_path: Annotated[str, typer.Option("-i", "--in",help = "path to input jplace file.", show_default = False)],
+                    dest_file: Annotated[str, typer.Option("-o", "--out",help = "output file path", show_default = False)],
+                    placement_label: Annotated[str, typer.Option("-p", "--placement-label", help = "placement label(s); can be a string or a file path")],
+                    tree_path: Annotated[str, typer.Option("-t", "--tree-path", help = "path to newick tree. \n Passing nothing means that the function will use the tree in the jplace.",show_default = False)]= "",
+                    edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)]= False,
+                   num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes)", show_default = True)] = 1):
 
-def placement_error(jplace_path: str,
-                    dest_file: str,
-                    ground_truth: str,
-                    tree_path: str = "",
-                    edge_error: bool = False,
-                    num_threads: int = 32):
-
+    """
+    Calculates placement error for queries in a given jplace file given a reference placement. 
+    """
     jplace_file = read_jplace(jplace_path)
 
     jplace_tree = jplace_file["tree"]
@@ -263,31 +273,29 @@ def placement_error(jplace_path: str,
         is_tree_path = True
         tree = tree_path
 
-    '''
-    if type(ground_truth) is list: 
-        return CTree.placement_error_multilabel(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
-    else:
-    '''
-    return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], ground_truth, num_threads, edge_error,  dest_path, is_tree_path)
+    return CTree.placement_error(jplace_tree, tree, jplace_file["placements"], placement_label, num_threads, edge_error,  dest_path, is_tree_path)
 
 '''
 Produces a null distribution of placements given a tree. This is done by simulating trials where a fixed number of nodes areselected and a reference node is chosen amongst them. The average distance between the reference node and the other nodes is then caluclated. The null distribution is the distribution of these scores. This is useful for filtering queries based on uncertainty scores.
 
 Arguments:
     - tree_path (Required): path to a Newick tree.
-    - dest_path (Required): directory path where results are stored.
+    - dest_file (Required): directory path where results are stored.
     - random_placements (Optional, default is 10): number of nodes selected per trial-- represents the number of placements 
                                                 per query.
     - trials (Optional, 1000 by default): number of random placements trials.
-    - num_threads (Optional, 32  by default): number of parallel threads (for performance purposes).
+    - num_threads (Optional, 1  by default): number of parallel threads (for performance purposes).
 '''
-
-def random_placement_uncertainty(tree_path: str,
-                      dest_path: str,
-                      random_placements: int = 10,
-                      trials: int = 1000,
-                      num_threads: int = 32):
+@app.command()
+def random_placement_uncertainty(tree_path: Annotated[str, typer.Option("-t", "--tree-path", help = "path to newick tree.", show_default = False)],                      
+                    dest_file: Annotated[str, typer.Option("-o", "--out",help = "output file path", show_default = False)],
+                    random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
+                    trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
+                    num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes)", show_default = True)] = 1):
     
+    """
+    Produces a null distribution of placements given a tree.
+    """
     is_tree_path = True
     tree = tree_path
     
@@ -296,7 +304,7 @@ def random_placement_uncertainty(tree_path: str,
     mean = sum(random_placements)/len(random_placements)
     std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
     print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
-    with open(f"{dest_path}","w") as f:
+    with open(f"{dest_file}","w") as f:
         for rp in sorted(random_placements):
             f.write(f"{rp}\n")
     return random_placements 
@@ -330,5 +338,6 @@ def multi_copy_consensus(jplace_path: str,
     ## remove copies far away from consensus
     copy_consensus =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, False, False, fields))
 
-
 '''
+if __name__ == "__main__":
+        app()
