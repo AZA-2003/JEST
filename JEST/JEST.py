@@ -213,16 +213,17 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         if os.path.isfile(genome_map) == False:
             print(ERROR_MAPPER)
             exit()
-
+    
+    print("Removing outlier subgenomes..")
     placements = uncertainty_score(jplace_path, 
-                                write_file = False,
+                                write_file = True,
                                 filter_queries = True,
                                 alpha = alpha,
                                 num_threads = num_threads,
                                 random_placements = random_placements,
                                 trials = trials)[1]
-    
     jplace_file = read_jplace(jplace_path)
+    prin(f"Filtered {len(jplace_file) - len(placements)} subgenomes out of {len(placements)}!") 
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)

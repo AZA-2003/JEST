@@ -28,7 +28,7 @@ vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<pl
 	pendant_lengths.reserve(placements.size());
 	compact_tree tree;
 	tree = compact_tree(tree_string,false,true,true,0);
-	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
 	regex gmap;
 	if (genome_map != "")
 		gmap = regex(genome_map);
@@ -63,7 +63,7 @@ vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<pl
 			}
 		}
 	}
-	int c_idx = 0;
+	//int c_idx = 0;
 	vector<string> genomes;
 	// store all the keys from the map for parallelized access of map
 	for(auto &pair : lbl_to_l_ratio){ 
@@ -78,9 +78,9 @@ vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<pl
 		string&  genome = genomes[g_idx];
 		auto & subgenomes = lbl_to_l_ratio[genome];
 		if (p_l_ratio_sum[genomes[g_idx]] == 0.0){
-			distal_lengths[c_idx] = NAN;
-			pendant_lengths[c_idx] = NAN;
-			c_idx +=1;
+			distal_lengths[g_idx] = NAN;
+			pendant_lengths[g_idx] = NAN;
+			//c_idx +=1;
 			continue;
 		}
 		// nice trick to normalize the likelihood weight ratio
@@ -97,7 +97,7 @@ vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<pl
 		for_each(p_l_ratio.begin(), p_l_ratio.end(), normalize_p_l_ratio);
 		
 		float nabla = 0.01;
-	   	string consensus_lbl = consensus[c_idx];
+	   	string consensus_lbl = consensus[g_idx];
 		CT_NODE_T consensus_node = lbl_to_node[consensus_lbl];
 		float consensus_blen = tree.get_edge_length(consensus_node);
 		float distal = ((float)rand()) / RAND_MAX * consensus_blen;
@@ -129,9 +129,9 @@ vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<pl
 			distal = min({1e-6, consensus_blen*0.5});
 		}
 		pendant = (pendant) + distal;
-		pendant_lengths[c_idx] = pendant;
-		distal_lengths[c_idx] = distal;
-		c_idx += 1;
+		pendant_lengths[g_idx] = pendant;
+		distal_lengths[g_idx] = distal;
+		//c_idx += 1;
 	}
 	return {distal_lengths, pendant_lengths};
 }
@@ -144,7 +144,7 @@ vector<vector<float>> find_length_pc(string jtree, string tree_string, vector<pl
 	pendant_lengths.reserve(placements.size());
 	compact_tree tree;
 	tree = compact_tree(tree_string,false,true,true,0);
-	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
 	size_t ol_threads = min(num_threads,placements.size());
 	omp_set_nested(1);
 	omp_set_num_threads(ol_threads);
@@ -225,7 +225,7 @@ void placement_error(string jtree, string tree_string, vector<placement_obj>& pl
 
 	tree = compact_tree(tree_string,true,true,true,0);
 
-	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
 	
 	string ref_genome;
 	ifstream ref_file;
@@ -305,7 +305,7 @@ map<string, map<string, float>> placement_error_subgenome(string jtree, string t
 	size_t lwr_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "like_weight_ratio"));
 
 	compact_tree tree = compact_tree(tree_string,false,true,true,0);
-	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
 	regex gmap;
 	ifstream gmap_file;
 	map<string, string> subgenome_to_genome;
@@ -401,7 +401,7 @@ vector<float> get_random_placements_uncertainty (string tree_string, size_t tria
 	else
 		tree = compact_tree(tree_string,false,true,true,0);
 
-	map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_node = label_to_node(tree);
 	vector<string> tree_labels = tree.get_labels();
 	vector<float> uncertainties(trials);
 	uncertainties.reserve(trials);
@@ -441,7 +441,7 @@ map<string,float> get_raw_uncertainty(string jtree, string tree_string, vector<p
 	 * **/
 	compact_tree tree = compact_tree(tree_string.c_str(),false,true,true,0);
 	
-	map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
 	vector<pair<string,float>> uncertainty_scores(placements.size());
 	size_t ol_threads = min(num_threads,placements.size());
 	omp_set_nested(1);
@@ -523,6 +523,7 @@ map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vecto
 	size_t lwr_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "like_weight_ratio"));
 	ofstream outFile(dest_path, ios::out);
 	map<string,float> uncertainties = get_raw_uncertainty(jtree,tree_string,placements,num_threads,lwr_idx, en_idx, rooted);
+	cout << "Obtained raw uncertainty values! Converting to p-values and writing to file...\n";
 	float rp_mean = accumulate(random_dist.begin(), random_dist.end(), 0.0) /random_dist.size();
 	auto mean_center_square = [&rp_mean](float& v){v = (v-rp_mean)*(v-rp_mean);};
 	vector<float> rp_mean_center(random_dist);
@@ -539,14 +540,18 @@ map<string,float> get_uncertainty_pvalue(string jtree, string tree_string, vecto
 	outFile << "name\tuncertainty raw score\tuncertainty normalized\tuncertainty p-value\n";
 	setprecision(6);
 	//for(auto it = uncertainties.begin(); it != uncertainties.end(); ++it){
-	#pragma omp parallel for
+	//size_t ol_threads = min(num_threads,placements.size());
+	//omp_set_nested(1);
+	//omp_set_num_threads(ol_threads);
+	//#pragma omp parallel for shared(random_dist)
 	for(size_t it_idx = 0; it_idx < placements.size(); it_idx++){
 		string placement_name = placements[it_idx].n[0];
-		//cout << it->second <<"\t"<< normalize(it->second) << "\n";
+		//cout << uncertainties[placement_name] <<"\t"<< placement_name << "\n";
 		pval_uncertainties[placement_name] = Percentile(random_dist, normalize(uncertainties[placement_name]));
-		#pragma omp critical
+		//#pragma omp critical
 		outFile << placement_name << "\t" << uncertainties[placement_name] <<"\t"<< normalize(uncertainties[placement_name]) <<"\t" << pval_uncertainties[placement_name] << "\n";
 	}
+	//#pragma omp critical
 	outFile.close();
 	return pval_uncertainties;
 }
@@ -579,7 +584,7 @@ vector<string> get_placement_consensus (string jtree, string tree_string, vector
 	consensus.reserve(placements.size());
 	compact_tree tree(tree_string,false,true,true,0);
 
-	map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
 	
 	ofstream outFile;
 	if (get_error == true){
@@ -731,7 +736,8 @@ vector<string> get_placement_consensus (string jtree, string tree_string, vector
 			outFile << placement.n[0] << "\t" << jest_label << "\t" << "N/A" <<"\n";
 		}*/
 	}
-	//outFile.close();
+	if (get_error == true)
+		outFile.close();
 	return consensus;
 }
 
@@ -785,7 +791,7 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 	size_t l_idx = distance(fields.begin(), find(fields.begin(), fields.end(), "likelihood"));
 	
 	compact_tree tree(tree_string.c_str(),false,true,true,0);
-	map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
+	unordered_map<string, CT_NODE_T> lbl_to_nd = label_to_node(tree);
 	
 	regex gmap;
 	ifstream gmap_file;
@@ -826,9 +832,9 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 		}
 	}
 	// Redesigned to handle multiple genomes with multiple subgenomes
-	map<string, map<string,float>> lbl_to_l_ratio;
-	map<string, float> p_l_ratio_sum;
-	map<string, float> subgenome_copy;
+	unordered_map<string, map<string,float>> lbl_to_l_ratio;
+	unordered_map<string, float> p_l_ratio_sum;
+	unordered_map<string, float> subgenome_copy;
 
 	size_t ol_threads = min(num_threads, placements.size());
 	omp_set_num_threads(ol_threads);
@@ -881,7 +887,7 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 	}
 	vector<vector<string>> consensus(2, vector<string>(p_l_ratio_sum.size(),""));
 
-	size_t c_idx = 0;
+	//size_t c_idx = 0;
 	vector<string> genomes;
 	for(auto &pair : lbl_to_l_ratio) genomes.push_back(pair.first);
 	ol_threads = min(num_threads,genomes.size());
@@ -893,9 +899,9 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 		auto & subgenomes = lbl_to_l_ratio[genome];
 		if (p_l_ratio_sum[genome] == 0.0){
 			cout << "Zero Placements found, unable to find a consensus!\n";
-			consensus[0][c_idx] = genome;
-			consensus[1][c_idx] = "N/A";
-			c_idx+=1;
+			consensus[0][g_idx] = genome;
+			consensus[1][g_idx] = "N/A";
+			//c_idx+=1;
 			continue;
 		}
 		// nice trick to normalize the likelihood weight ratio
@@ -999,9 +1005,9 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 			}
 		}
 		//consensus[pair.first] = jest_label;
-		consensus[0][c_idx] = genome;
-		consensus[1][c_idx] = jest_label;
-		c_idx+=1;
+		consensus[0][g_idx] = genome;
+		consensus[1][g_idx] = jest_label;
+		//c_idx+=1;
 		if (get_error == true){
 			float con_error = 0.0;
 			for (size_t p_idx = 0; p_idx < p_lbl.size(); p_idx++){
@@ -1013,7 +1019,8 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 			}
 		}
 	}
-	outFile.close();
+	if (get_error == true)
+		outFile.close();
 	return consensus;
 }
 
@@ -1034,6 +1041,7 @@ vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vec
 	cout << "Distal and pendant lengths obtained!\n";
 	
 	for (size_t c_idx = 0; c_idx < consensus[0].size(); c_idx++){
+		//cout << (c_idx+1) <<" of "<< consensus[0].size() << "\t" << consensus[0][c_idx] <<"\t" << consensus[1][c_idx] << "\n";
 		placement_obj pobj({consensus[0][c_idx]}, vector<vector<float>>(1, vector<float>(fields.size(), 0.0)));
 		int ixn = jtree.find(consensus[1][c_idx]);
 		string jtree_substring = jtree.substr(ixn,jtree.length()-ixn);
