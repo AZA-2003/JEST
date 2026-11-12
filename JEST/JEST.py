@@ -284,7 +284,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
             if score > alpha:
                 filtered_queries.append(name)
             else:
-                remaining_placements_post.append(remaining_placements[idx])
+                remaining_placements_post.append(next((p for p in remaining_placements if (lambda x:x["n"][0] == name )(p)), None))
         print(f"Filtered {len(remaining_placements) - len(remaining_placements_post)} subgenomes out of {len(remaining_placements)}!") 
     
         jplace_file["placements"] = remaining_placements_post
