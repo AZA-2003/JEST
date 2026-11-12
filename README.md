@@ -30,6 +30,14 @@ After setup, JEST can be used in any Python3 file by importing as follows:
 ```Python3
 import JEST
 ```
+To make use of JEST as a CLI command, install `typer` in your environment:
+```bash
+pip install typer
+```
+To test out the CLI:
+```bash
+JEST --help
+```
 ## Usage (with a toy example)
 
 

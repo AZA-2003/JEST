@@ -35,6 +35,7 @@ Arguments:
     - random_path (Optional): unless a path to a null distribution is passed, the function will generate a null 
                             distribution for uncertainty scoring; to produce a file consisting of a null distribution 
                             based on a tree, refer to `random_placement_uncertainty`
+Returns the uncertainty scores for each query as well as the remaining queries if filtering was done.
 '''
 @app.command()
 def uncertainty_score(jplace_path: Annotated[str, typer.Option("-i","--in",help = "path to input jplace file.", show_default=False)],
@@ -77,7 +78,7 @@ def uncertainty_score(jplace_path: Annotated[str, typer.Option("-i","--in",help 
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     is_tree_path = False
     
-    # process the mean and std using numpy instead of numpy to avoid package bloat
+    # process the mean and std using python instead of numpy to avoid package bloat
     if os.path.isfile(random_dist_path) == False:
         print(f"No random distribution path found! Generating {trials} number of trials for Null distribution.")
         random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
@@ -140,6 +141,7 @@ Arguments:
                                        will use the jplace tree if node is provided.
     - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
                                             setting it to False means it will use branch length.
+Returns he consensus results as a dictionary
 '''
 @app.command()
 def placement_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",help = "path to input jplace file.", show_default = False)],
@@ -178,21 +180,25 @@ Arguments:
     - jplace_path (Required): path to input jplace file.
     - write_file (Required): whether or not an output jplace file should be written.
     - dest_path (Optional, current path by default): directory path  where results are output (errors, modified jplace files).
+    - filter_queries (Optional, False by default): whether to filter queries of high uncertainty.
     - num_threads (Optional, 32 by default): number of parallel threads (for performance purposes).
     - get_error (Optional, False by default): whether to measure distance of consensus placement to each of its constituents.
     - edge_error (Optional, False by default): whether to measure error in terms of number of edges or branch length;
                                             setting it to False means it will use branch length.
     - genome_map (Optional): a regex pattern or file that maps subgenomes to a genome. 
                             This is useful if there are many different genomes represented by the sub-genomes in the file. 
-                            Passing nothing assumes that all the subgenomes belong to the same genome.
-    - multi_copy (Optional, False by default): whether the subgenomes have copies or not; this affects consensus calculations as the their 
-                                                contributions are equally split amongst each other.
+                            Passing nothing assumes that all the subgenomes belong to the same genome. Note that the regex
+                            pattern should capture both subgenome and genome groups.
+    - multi_copy (Optional, False by default): whether the subgenomes have copies or not; this affects consensus 
+                                            calculations as the their contributions are equally split amongst each other.
+Returns the consensus results as a dictionary and a list of remaining subgenomes
 '''
 
 @app.command()
 def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",help = "path to input jplace file.", show_default = False)],
                         write_file: Annotated[bool, typer.Option("-w", "--write-to-file", help = "whether or not an output jplace file should be written.", show_default = False)],
                         dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
+                      filter_queries: Annotated[bool, typer.Option("-f","--filter", help = "whether to filter queries past an uncertainty threshold.", show_default = True)] = False,
                         alpha: Annotated[float, typer.Option("-a","--alpha", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
                         random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
                         trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
@@ -213,32 +219,83 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         if os.path.isfile(genome_map) == False:
             print(ERROR_MAPPER)
             exit()
-    
-    print("Removing outlier subgenomes..")
-    placements = uncertainty_score(jplace_path, 
-                                write_file = True,
-                                filter_queries = True,
-                                alpha = alpha,
-                                num_threads = num_threads,
-                                random_placements = random_placements,
-                                trials = trials)[1]
+   
+    ## TODO add a section to perform random placements to save and reuse that random distribution for later
     jplace_file = read_jplace(jplace_path)
-    prin(f"Filtered {len(jplace_file) - len(placements)} subgenomes out of {len(placements)}!") 
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
     tree = re.sub(r"{[0-9]+}","",jplace_tree)
     
+    if os.path.isfile(random_dist_path) == False:
+        print(f"No random distribution path found! Generating {trials} number of trials for Null distribution.")
+        random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,False))
+    else:
+        print(f"Reading the null distribution from {random_dist_path}.")
+        with open(random_dist_path, "r") as f:
+            random_placements = [float(line.strip()) for line in f]
+        if len(random_placements) * alpha < 1:
+            raise ValueError(ERROR_ALPHA_RANDOM_MISMATCH)
+
+    mean = sum(random_placements)/len(random_placements)
+    std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
+    print(f"Null Distribution generated with mean {mean} and standard deviation {std}") 
     fields = jplace_file["fields"]
+    dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_preconsensus_uncertainty.txt"))
+    print(f"Generating uncertainty scores and writing to {dest_file}.")
+    results = CTree.get_uncertainty_pvalue(jplace_tree, tree, 
+            jplace_file["placements"], random_placements, 
+            num_threads, dest_file,
+            fields, True)
+    print("Done generating uncertainty scores!")
+    ## in-place filtration
+    print(f"Filtering subgenomes...")
+    remaining_placements = []
+    filtered_queries = []
+    for idx,(name,score) in enumerate(results.items()):
+        if score > alpha:
+            filtered_queries.append(name)
+        else:
+            remaining_placements.append(jplace_file["placements"][idx])
+    #jplace_file["placements"] = remaining_placements
+
+    print(f"Filtered {len(jplace_file['placements']) - len(remaining_placements)} subgenomes out of {len(jplace_file['placements'])}!") 
     dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_error.txt"))
-    results = CTree.subgenome_consensus(jplace_tree, tree, placements,num_threads,dest_file, get_error, edge_error, fields, genome_map, multi_copy)
-    jplace_file["placements"] = results
+    results = CTree.subgenome_consensus(jplace_tree, tree, remaining_placements,num_threads,dest_file, get_error, edge_error, fields, genome_map, multi_copy)
+     
+    jplace_file["placements"] = results["jplace"]
     if write_file:
         print("Writing to file...")
         new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_consensus.jplace"))
         with open(new_jplace_path, "w") as f:
             json.dump(jplace_file, f, indent=4)
-    return results, placements
-
+    
+    if filter_queries: 
+        print("Obtaining consensus statistics..")
+        dest_file = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_subgenome_stats.txt"))
+        subgenome_pvals = CTree.placement_stat_subgenome(jplace_tree, tree, remaining_placements, 
+            dict(zip(results["consensus"][0], results["consensus"][1])), 
+            num_threads, dest_file, fields, genome_map, 
+            random_placements)
+        #print(subgenome_pvals)
+        print("Filtering subgenomes based on consensus statistics..")
+        remaining_placements_post = []
+        filtered_queries = []
+        for idx,(name,score) in enumerate(subgenome_pvals.items()):
+            if score > alpha:
+                filtered_queries.append(name)
+            else:
+                remaining_placements_post.append(remaining_placements[idx])
+        print(f"Filtered {len(remaining_placements) - len(remaining_placements_post)} subgenomes out of {len(remaining_placements)}!") 
+    
+        jplace_file["placements"] = remaining_placements_post
+        if write_file:
+            print("Writing to file...")
+            new_jplace_path = str(Path(dest_path).joinpath(f"{jplace_path.split("/")[-1].split('.')[0]}_postconsensus_filtered_{alpha}.jplace"))
+            with open(new_jplace_path, "w") as f:
+                json.dump(jplace_file, f, indent=4)
+     
+        return results["jplace"], remaining_placements_post
+    return results["jplace"], remaining_placements
 
 '''
 Calculates placement error for queries in a given jplace file given a single or list of reference placement. 
@@ -280,7 +337,7 @@ def placement_error(jplace_path: Annotated[str, typer.Option("-i", "--in",help =
 Produces a null distribution of placements given a tree. This is done by simulating trials where a fixed number of nodes areselected and a reference node is chosen amongst them. The average distance between the reference node and the other nodes is then caluclated. The null distribution is the distribution of these scores. This is useful for filtering queries based on uncertainty scores.
 
 Arguments:
-    - tree_path (Required): path to a Newick tree.
+    - tree_path (Required): path to a Newick tree or string.
     - dest_file (Required): directory path where results are stored.
     - random_placements (Optional, default is 10): number of nodes selected per trial-- represents the number of placements 
                                                 per query.
@@ -288,7 +345,7 @@ Arguments:
     - num_threads (Optional, 1  by default): number of parallel threads (for performance purposes).
 '''
 @app.command()
-def random_placement_uncertainty(tree_path: Annotated[str, typer.Option("-t", "--tree-path", help = "path to newick tree.", show_default = False)],                      
+def random_placement_uncertainty(tree_path: Annotated[str, typer.Option("-t", "--tree-path", help = "path to newick tree or string.", show_default = False)],                      
                     dest_file: Annotated[str, typer.Option("-o", "--out",help = "output file path", show_default = False)],
                     random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
                     trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
@@ -297,11 +354,14 @@ def random_placement_uncertainty(tree_path: Annotated[str, typer.Option("-t", "-
     """
     Produces a null distribution of placements given a tree.
     """
-    is_tree_path = True
-    tree = tree_path
+    ## TODO check if path or string
+    if os.path.isfile(tree_path) == True:
+        is_tree_path = True
+    else:
+        is_tree_path = False
     
     # process the mean and std using numpy instead of numpy to avoid package bloat
-    random_placements = list(CTree.get_random_placements_uncertainty(tree,trials,random_placements,num_threads,is_tree_path))
+    random_placements = list(CTree.get_random_placements_uncertainty(tree_path,trials,random_placements,num_threads,is_tree_path))
     mean = sum(random_placements)/len(random_placements)
     std = math.sqrt(sum([(r-mean)*(r-mean) for r in random_placements])/len(random_placements) + 1e-8)
     print(f"Random Placement Distribution generated with mean {mean} and standard deviation {std}") 
@@ -338,6 +398,17 @@ def multi_copy_consensus(jplace_path: str,
 
     ## remove copies far away from consensus
     copy_consensus =  list(CTree.placement_consensus(jplace_tree, tree, placements, num_threads,dest_file, False, False, fields))
+
+
+placements = uncertainty_score(jplace_path, 
+                                write_file = True,
+                                filter_queries = True,
+                                alpha = alpha,
+                                num_threads = num_threads,
+                                random_placements = random_placements,
+                                trials = trials)[1]
+    
+    fields = jplace_file["fields"]
 
 '''
 if __name__ == "__main__":

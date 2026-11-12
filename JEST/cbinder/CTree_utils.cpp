@@ -19,8 +19,8 @@ vector<string> split_string (string s, char  delim){
 	return splits;
 }
 
-map<string, CT_NODE_T> label_to_node (compact_tree tree){
-	map<string, CT_NODE_T> lbl_to_node;
+unordered_map<string, CT_NODE_T> label_to_node (compact_tree tree){
+	unordered_map<string, CT_NODE_T> lbl_to_node;
 	for (auto it = tree.levelorder_begin(); it !=  tree.levelorder_end(); ++it){
 		lbl_to_node.emplace(tree.get_label(*it),*it);
 	}
