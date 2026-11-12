@@ -18,9 +18,15 @@ struct placement_obj {
     placement_obj(vector<string> n, vector<vector<float>> p) : n(n), p(p) {}
 };
 
+struct subgenome_consensus_obj {
+	vector<placement_obj> jplace;
+	vector<vector<string>> consensus;
+    subgenome_consensus_obj(vector<placement_obj> p, vector<vector<string>> c) : jplace(p), consensus(c) {}
+};
+
 vector<string> split_string (string s, char delim);
 
-map<string, CT_NODE_T> label_to_node(compact_tree tree);
+unordered_map<string, CT_NODE_T> label_to_node(compact_tree tree);
 
 //vector<float> get_random_placements_uncertainty (compact_tree tree, size_t trials, size_t random_placements, size_t num_threads);
 

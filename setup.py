@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='JEST-Phylo',
-    version='0.3.0',
+    version='0.3.1',
     description="jplace evaluation and scoring tool",
     author='Ali Alabiad',
     author_email="ali.z03@yahoo.com",
@@ -13,5 +13,8 @@ setup(
     'JEST': ['JEST/_CTree.so'],
     },
     zip_safe=False,
-    install_requires=[]
+    install_requires=[],
+    entry_points={
+        'console_scripts': ["JEST=JEST.JEST:app",]
+                }
 )

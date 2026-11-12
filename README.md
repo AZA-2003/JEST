@@ -20,9 +20,24 @@ JEST can be installed using `pip` under the name JEST-Phylo:
 ```bash
 pip install JEST-Phylo
 ```
-and can be used in any Python3 file by importing as follows:
+While it is recommended to use `pip` for installation, it is possible to set up JEST by cloning the repository and running the following steps:
+```bash
+cd JEST/JEST/
+bash compile_CTree.sh $CONDA_PREFIX/include/python*
+export PYTHONPATH=$PYTHONPATH:<absolute path to github clone>
+```
+After setup, JEST can be used in any Python3 file by importing as follows:
 ```Python3
 import JEST
 ```
+To make use of JEST as a CLI command, install `typer` in your environment:
+```bash
+pip install typer
+```
+To test out the CLI:
+```bash
+JEST --help
+```
 ## Usage (with a toy example)
+
 

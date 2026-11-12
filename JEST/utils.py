@@ -21,6 +21,7 @@ def label_internal_nodes(tree_str):
     ref_str = tree_str[:]
     idx = 0
     while True:
+        # TODO do checks to preserve internal node labels
         tree_str = ref_str.replace("):",f")E{idx}:",1)
         if tree_str == ref_str:
             break

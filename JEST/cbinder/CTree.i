@@ -8,7 +8,7 @@
     #include "string"
     using namespace std;
     extern vector<string> split_string(string s, char delim);
-    extern map<string, CT_NODE_T> label_to_node(compact_tree tree); 
+    extern unordered_map<string, CT_NODE_T> label_to_node(compact_tree tree); 
     extern map<string, vector<string>> label_children(string tree_string, bool is_path);
     
     extern vector<float> get_random_placements_uncertainty (string tree_string, size_t trials, size_t random_placements, size_t num_threads, bool is_path);
@@ -23,18 +23,52 @@
     
     extern vector<placement_obj> placement_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields);
     
-    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
+    extern vector<vector<string>> get_subgenome_consensus (string jtree, string tree_string, vector<placement_obj>& placements, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy);
     
-    extern vector<placement_obj> subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map);
+    extern subgenome_consensus_obj subgenome_consensus (string jtree, string tree_string, vector<placement_obj>&, size_t num_threads, string dest_path, bool get_error, bool edge_error, vector<string> fields, string genome_map, bool multi_copy);
 
     extern void placement_error(string jtree, string tree_string, vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
 
-   extern void placement_error_consensus(string jtree, string tree_string, vector<placement_obj>& placements, vector<string> reference, size_t num_threads,bool edge_error, string dest_path, vector<string> fields);
+   extern map<string, float> placement_stat_subgenome(string jtree, string tree_string, vector<placement_obj>& placements, map<string, string> consensus, size_t num_threads, string dest_path, vector<string> fields, string genome_map, vector<float> random_dist);
  
     extern vector<vector<float>> find_length_pc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
     extern vector<vector<float>> find_length_sc(string jtree, string tree_string, vector<placement_obj> & placements, vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx, string genome_map);
 
+    PyObject* get_placements (const vector<placement_obj> pobj){ 
+        size_t nplacements = pobj.size();
+        PyObject *list_place = PyList_New(nplacements);
+        for (size_t i = 0; i < nplacements; i++){
+            PyObject *pl_dict = PyDict_New();
+            PyObject *nlist = PyList_New(pobj[i].n.size());
+            size_t p_len = pobj[i].p.size();
+            PyObject *plist = PyList_New(p_len);
+        
+            if(nlist && PyList_Check(nlist)){
+                PyObject *pname = PyUnicode_FromString(pobj[i].n[0].c_str());
+                PyList_SET_ITEM(nlist, 0, pname);
+            }
+            if(plist && PyList_Check(plist)){
+                for(size_t j = 0; j < p_len; j++){
+                    PyObject *placement = PyList_New(pobj[i].p[j].size());
+                    size_t pfields = pobj[i].p[j].size();
+                    for (size_t k = 0; k < pfields; k++){
+                        PyObject *py_val = PyFloat_FromDouble(pobj[i].p[j][k]);
+                        PyList_SET_ITEM(placement,k,py_val);
+                    }
+                    PyList_SET_ITEM(plist, j, placement);
+                }
+            }
+            PyDict_SetItemString(pl_dict, "n", nlist);
+            Py_DECREF(nlist);
+            PyDict_SetItemString(pl_dict, "p", plist);
+            Py_DECREF(plist);
+            PyList_SET_ITEM(list_place,i,pl_dict);
+        }
+        return list_place;
+    } 
+
 %}
+
 %include <std_string.i>
 %include <std_map.i>
 %include <std_vector.i>
@@ -49,7 +83,9 @@
 %template(LabelChildrenMap) std::map<std::string, std::vector<std::string>>;
 %template(Placement) std::vector<std::vector<float>>;
 %template(PlacementUncertainties) std::map<std::string, float>;
+%template(ConsensusErrors) std::map<std::string, std::map<std::string, float>>;
 %template(PlacementsList) std::vector<placement_obj>;
+%template(Consensus) std::map<std::string, std::string>;
 
 %typemap(in) size_t{
     long long temp_val;
@@ -110,45 +146,37 @@
 }
 
 %typemap (out) std::vector<placement_obj> {
-    
-    vector<placement_obj> pobj = $1;
-    size_t nplacements = pobj.size();
-    PyObject *list_place = PyList_New(nplacements);
-    for (size_t i = 0; i < nplacements; i++){
-        PyObject *pl_dict = PyDict_New();
-        if (!pl_dict) SWIG_fail; 
-        PyObject *nlist = PyList_New(pobj[i].n.size());
-        size_t p_len = pobj[i].p.size();
-        PyObject *plist = PyList_New(p_len);
-        
-        if(nlist && PyList_Check(nlist)){
-            PyObject *pname = PyUnicode_FromString(pobj[i].n[0].c_str());
-            PyList_SET_ITEM(nlist, 0, pname);
-        }
-        if(plist && PyList_Check(plist)){
-            for(size_t j = 0; j < p_len; j++){
-                PyObject *placement = PyList_New(pobj[i].p[j].size());
-                size_t pfields = pobj[i].p[j].size();
-                for (size_t k = 0; k < pfields; k++){
-                    PyObject *py_val = PyFloat_FromDouble(pobj[i].p[j][k]);
-                    PyList_SET_ITEM(placement,k,py_val);
-                }
-                PyList_SET_ITEM(plist, j, placement);
+        $result = get_placements($1);
+}
+
+%typemap (out) subgenome_consensus_obj {
+    subgenome_consensus_obj obj = $1;
+    PyObject *pl_dict = PyDict_New();
+    PyObject *cplacements = get_placements(obj.jplace);
+    PyDict_SetItemString(pl_dict, "jplace", cplacements);
+    Py_DECREF(cplacements);
+     
+    size_t consize = obj.consensus.size();
+    PyObject *list_place = PyList_New(consize);
+    if(list_place && PyList_Check(list_place)){
+        for (size_t i = 0; i < consize; i++){
+            size_t c_len = obj.consensus[i].size(); 
+            PyObject *clist = PyList_New(c_len);
+            for (size_t j = 0; j < c_len; j++){
+                    PyObject *pname = PyUnicode_FromString(obj.consensus[i][j].c_str());
+                    PyList_SET_ITEM(clist, j, pname);
             }
-        }
-        else{
-            SWIG_fail;
-        }
-        PyDict_SetItemString(pl_dict, "n", nlist);
-        Py_DECREF(nlist);
-        PyDict_SetItemString(pl_dict, "p", plist);
-        Py_DECREF(plist);
-        PyList_SET_ITEM(list_place,i,pl_dict);
+                PyList_SET_ITEM(list_place, i, clist);
+        }      
     }
-    $result = list_place;
-} 
-
-
+    else{
+        PyErr_SetString(PyExc_TypeError, "Error generating subgenome_consensus object!");
+        SWIG_fail;      
+    }
+    PyDict_SetItemString(pl_dict, "consensus", list_place);
+    Py_DECREF(list_place);
+    $result = pl_dict;
+}
 
 %include "CTree_utils.h"
 
@@ -171,13 +199,13 @@ std::vector<std::string> get_placement_consensus (std::string jtree, std::string
 std::vector<placement_obj> placement_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields);
 
 
-std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
+std::vector<std::vector<std::string>> get_subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads, std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map, bool multi_copy);
 
-std::vector<placement_obj> subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>&, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map);
+subgenome_consensus_obj subgenome_consensus (std::string jtree, std::string tree_string, vector<placement_obj>& placements, size_t num_threads,std::string dest_path, bool get_error, bool edge_error, std::vector<std::string> fields, std::string genome_map, bool multi_copy);
 
 void placement_error(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements, string reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string> fields);
 
-void placement_error_consensus(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::vector<std::string> reference, size_t num_threads,bool edge_error, std::string dest_path, std::vector<std::string>);
+std::map<std::string, float> placement_stat_subgenome(std::string jtree, std::string tree_string, std::vector<placement_obj>& placements,std::map<std::string, std::string> consensus, size_t num_threads, std::string dest_path, std::vector<std::string> fields, std::string genome_map, std::vector<float> random_dist);
 
 std::vector<std::vector<float>> find_length_pc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
 
