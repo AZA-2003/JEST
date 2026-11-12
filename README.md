@@ -15,8 +15,8 @@ For detialed documentation and tutorial, please refer to the [Wiki](https://gith
 
 While JEST is a Python library, its main implementations wrap around functions written in C++ to allow for speed and multi-threading-support. As such, [CompactTree](https://github.com/niemasd/CompactTree) is used for tree parsing and manipulation thereby only supporting the [Newick tree format](https://en.wikipedia.org/wiki/Newick_format) with no complex annotations (only node labels and edge lengths).
 
-## Setup and Usage
-JEST can be installed using `pip`:  
+## Setup
+JEST can be installed using `pip` under the name JEST-Phylo:  
 ```bash
 pip install JEST-Phylo
 ```
