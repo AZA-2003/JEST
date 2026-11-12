@@ -875,20 +875,27 @@ vector<vector<string>> get_subgenome_consensus(string jtree, string tree_string,
 				}
 				else{
 					if (multi_copy == true){
-						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] = (p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] * subgenome_copy[placement.n[0]] + likelihood);
-						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] = (lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] * subgenome_copy[placement.n[0]] + likelihood);
+						if (has_features == true){	
+							p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] = (p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] * subgenome_copy[placement.n[0]] + (likelihood * subgenome_to_feature[placement.n[0]]));
+							lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] = (lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] * subgenome_copy[placement.n[0]] + (likelihood * subgenome_to_feature[placement.n[0]]));
+						}
+						else{
+							p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] = (p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] * subgenome_copy[placement.n[0]] + likelihood);
+							lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] = (lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] * subgenome_copy[placement.n[0]] + likelihood);
+						}
 						subgenome_copy[placement.n[0]] += 1;
 						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] /= subgenome_copy[placement.n[0]];
 						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] /= subgenome_copy[placement.n[0]];
 					}
 					else{
-						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] += likelihood;
-						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] += likelihood;
-				
-					}
-					if (has_features == true){	
-						p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] *= subgenome_to_feature[placement.n[0]];
-						lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] *= subgenome_to_feature[placement.n[0]];
+						if (has_features == true){	
+							p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] += (likelihood * subgenome_to_feature[placement.n[0]]);
+							lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] += (likelihood * subgenome_to_feature[placement.n[0]]);
+						}
+						else{
+							p_l_ratio_sum[subgenome_to_genome[placement.n[0]]] += likelihood;
+							lbl_to_l_ratio[subgenome_to_genome[placement.n[0]]][lbl_placement] += likelihood;	
+						}
 					}
 				}
 			}
