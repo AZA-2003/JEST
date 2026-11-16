@@ -112,7 +112,7 @@ def uncertainty_score(jplace_path: Annotated[str, typer.Option("-i","--in",help 
             if score > alpha:
                 filtered_queries.append(name)
             else:
-                remaining_placements.append(jplace_file["placements"][idx])
+                remaining_placements.append(next((p for p in jplace_file["placements"] if (lambda x:x["n"][0] == name )(p)), None))
         jplace_file["placements"] = remaining_placements
         if write_file:
             print("Writing to file...")
@@ -255,7 +255,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         if score > alpha:
             filtered_queries.append(name)
         else:
-            remaining_placements.append(jplace_file["placements"][idx])
+            remaining_placements.append(next((p for p in jplace_file["placements"] if (lambda x:x["n"][0] == name )(p)), None))
     #jplace_file["placements"] = remaining_placements
 
     print(f"Filtered {len(jplace_file['placements']) - len(remaining_placements)} subgenomes out of {len(jplace_file['placements'])}!") 
