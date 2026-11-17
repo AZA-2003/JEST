@@ -199,7 +199,8 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         write_file: Annotated[bool, typer.Option("-w", "--write-to-file", help = "whether or not an output jplace file should be written.", show_default = False)],
                         dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
                       filter_queries: Annotated[bool, typer.Option("-f","--filter", help = "whether to filter queries past an uncertainty threshold.", show_default = True)] = False,
-                        alpha: Annotated[float, typer.Option("-a","--alpha", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
+                        alpha-pre: Annotated[float, typer.Option("-a","--alpha-pre", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
+                        alpha-post: Annotated[float, typer.Option("-ap","--alpha-post", help = "filter-value cutoff percentage.", show_default = True)] = 0.05,
                         random_placements: Annotated[int, typer.Option("-rp","--random-placements", help = "number of placements per one trial of random placement.", show_default = True)] = 10,
                         trials:  Annotated[int, typer.Option("-t","--trials", help = "number of random placements trials.", show_default = True)] = 1000,
                         num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes)", show_default = True)] = 1,
@@ -233,7 +234,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         print(f"Reading the null distribution from {random_dist_path}.")
         with open(random_dist_path, "r") as f:
             random_placements = [float(line.strip()) for line in f]
-        if len(random_placements) * alpha < 1:
+        if (len(random_placements) * alpha-pre < 1) and (len(random_placements) * alpha-post < 1):
             raise ValueError(ERROR_ALPHA_RANDOM_MISMATCH)
 
     mean = sum(random_placements)/len(random_placements)
@@ -252,7 +253,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
     remaining_placements = []
     filtered_queries = []
     for idx,(name,score) in enumerate(results.items()):
-        if score > alpha:
+        if score > alpha-pre:
             filtered_queries.append(name)
         else:
             remaining_placements.append(next((p for p in jplace_file["placements"] if (lambda x:x["n"][0] == name )(p)), None))
@@ -281,7 +282,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         remaining_placements_post = []
         filtered_queries = []
         for idx,(name,score) in enumerate(subgenome_pvals.items()):
-            if score > alpha:
+            if score > alpha-post:
                 filtered_queries.append(name)
             else:
                 remaining_placements_post.append(next((p for p in remaining_placements if (lambda x:x["n"][0] == name )(p)), None))
