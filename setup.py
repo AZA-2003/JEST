@@ -1,7 +1,16 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_packages, Distribution
+
+
+class BinaryDistribution(Distribution):
+    # The extension is built by compile_CTree.sh; wheels must still carry an
+    # interpreter/platform tag rather than advertise this binary as pure Python.
+    def has_ext_modules(self):
+        return True
+
 
 setup(
     name='JEST-Phylo',
+    distclass=BinaryDistribution,
     version='0.3.2',
     description="jplace evaluation and scoring tool",
     author='Ali Alabiad',
@@ -10,7 +19,7 @@ setup(
     packages=find_packages(exclude=['test']),
     include_package_data=True,
     package_data={
-    'JEST': ['JEST/_CTree.so'],
+    'JEST': ['_CTree.so'],
     },
     zip_safe=False,
     install_requires=[],

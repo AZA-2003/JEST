@@ -631,7 +631,9 @@ inline compact_tree::compact_tree(const char* const input, bool is_fn, bool stor
         if(fd == -1) {
             throw std::invalid_argument(ERROR_OPENING_FILE + std::string(": ") + std::string(input));
         }
-        posix_fadvise(fd, 0, 0, 1); // FDADVICE_SEQUENTIAL
+        #if defined(POSIX_FADV_SEQUENTIAL)
+        posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+        #endif
     }
 
     // set up initial Newick parsing state

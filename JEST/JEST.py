@@ -149,11 +149,23 @@ def placement_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         dest_path:  Annotated[str, typer.Option("-o","--out", help = "directory path  where results are output.", show_default = True)] = ".",
                         num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes).", show_default = True)] = 1,
                         get_error: Annotated[bool, typer.Option("-e","--get-error", help = "whether to measure weighted distance of consensus to its constituents.", show_default = True)] = False,
-                        edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False):
+                        edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False,
+                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy or frechet.")] = "legacy",
+                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False):
 
     """
     Summarizes multiple placements for a given query to a single placement on the tree.
     """
+    if method not in ("legacy", "frechet"):
+        raise ValueError("method must be 'legacy' or 'frechet'")
+    if method == "frechet":
+        from .frechet import run
+        return run(jplace_path, grouped=False, write_file=write_file,
+                   dest_path=dest_path, num_threads=num_threads, get_error=get_error,
+                   edge_error=edge_error, return_diagnostics=return_diagnostics)
+    if return_diagnostics:
+        raise ValueError("return_diagnostics requires method='frechet'")
+
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
     jplace_tree = label_internal_nodes(jplace_tree)
@@ -207,11 +219,24 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         get_error: Annotated[bool, typer.Option("-e","--get-error", help = "whether to measure weighted distance of consensus to its constituents.", show_default = True)] = False,
                         edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False,
                         genome_map: Annotated[str, typer.Option("-g", "--genome-map", help = "regex pattern or file that maps subgenomes to genomes.\n Passing nothing assumes that all subgenomes belong to the same genome.", show_default = True)]= "",
-                        multi_copy: Annotated[bool, typer.Option("-m", "--multi-copy", "--multi", help = "whether the subgenomes are single or multicopy.\n Multicopied genomes have their contributions to the consensus split among them.")] = False):
+                        multi_copy: Annotated[bool, typer.Option("-m", "--multi-copy", "--multi", help = "whether the subgenomes are single or multicopy.\n Multicopied genomes have their contributions to the consensus split among them.")] = False,
+                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy or frechet.")] = "legacy",
+                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False):
 
     """
     Summarizes multiple subgenome (contigs, genes, etc..) placements to a single placement on the tree. 
     """
+    if method not in ("legacy", "frechet"):
+        raise ValueError("method must be 'legacy' or 'frechet'")
+    if method == "frechet":
+        from .frechet import run
+        return run(jplace_path, grouped=True, write_file=write_file,
+                   dest_path=dest_path, num_threads=num_threads, get_error=get_error,
+                   edge_error=edge_error, return_diagnostics=return_diagnostics,
+                   genome_map=genome_map, multi_copy=multi_copy, filter_queries=filter_queries)
+    if return_diagnostics:
+        raise ValueError("return_diagnostics requires method='frechet'")
+
     try:
         if genome_map != "":
             re.compile(genome_map)

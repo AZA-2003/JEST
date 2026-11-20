@@ -30,3 +30,6 @@ JEST/cbinder/CTree.py
 .env
 .venv
 venv/
+
+# Generated Python proxy (compile_CTree.sh)
+JEST/CTree.py

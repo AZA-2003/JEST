@@ -41,3 +41,12 @@ JEST --help
 ## Usage (with a toy example)
 
 
+
+## Continuous Fréchet consensus
+
+Use `method="frechet"` in `placement_consensus` or `subgenome_consensus`, or
+`--method frechet` in the CLI, to minimize expected squared attachment distance
+with equal total weight per query. The default remains `legacy`.
+
+See [Fréchet consensus usage, conventions, and build instructions](docs/frechet_consensus.md).
+Rebuild the SWIG extension before using the new method.

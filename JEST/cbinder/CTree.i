@@ -1,6 +1,7 @@
 %module CTree
 %{
     #define SWIG_FILE_WITH_INIT
+    #include "frechet_consensus.h"
     #include "compact_tree.h"
     #include "CTree_utils.h"
     #include "map"
@@ -210,3 +211,15 @@ std::map<std::string, float> placement_stat_subgenome(std::string jtree, std::st
 std::vector<std::vector<float>> find_length_pc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx);
 
 std::vector<std::vector<float>> find_length_sc(std::string jtree, std::string tree_string, std::vector<placement_obj> & placements, std::vector<string> consensus, size_t num_threads, size_t lwr_idx, size_t en_idx, std::string genome_map);
+
+// The new typed boundary never passes through placement_obj's float typemap.
+%include <exception.i>
+%exception {
+    try { $action }
+    catch (const std::invalid_argument& e) { SWIG_exception(SWIG_ValueError, e.what()); }
+    catch (const std::out_of_range& e) { SWIG_exception(SWIG_ValueError, e.what()); }
+    catch (const std::exception& e) { SWIG_exception(SWIG_RuntimeError, e.what()); }
+}
+%template(UInt64Vector) std::vector<unsigned long long>;
+%include "frechet_consensus.h"
+%template(FrechetResults) std::vector<FrechetResult>;
