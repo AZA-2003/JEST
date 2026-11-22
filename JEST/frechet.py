@@ -192,6 +192,7 @@ def consensus(document, *, grouped=False, genome_map="", num_threads=1):
         output.append(identity)
         diagnostics.append({
             "group": group if grouped else names_by_record[group],
+            "consensus_label": index.edge_label(result.edge_num),
             "edge_num": result.edge_num,
             "distal_length": result.distal_length,
             "query_count": result.query_count,
@@ -234,6 +235,17 @@ def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
     kind = "subgenome" if grouped else "placement"
     if write_file or get_error:
         Path(dest_path).mkdir(parents=True, exist_ok=True)
+        # A label describes the selected edge's child; the coordinate is needed
+        # to identify the continuous consensus, including at a proximal endpoint.
+        name_column = "group" if grouped else "query"
+        with open(Path(dest_path) / f"{prefix}_{kind}_consensus.tsv", "w", newline="") as stream:
+            writer = csv.writer(stream, delimiter="\t")
+            writer.writerow([name_column, "consensus_label", "edge_num", "distal_length"])
+            for diagnostic in diagnostics:
+                names = [diagnostic["group"]] if grouped else diagnostic["group"]
+                for name in names:
+                    writer.writerow([name, diagnostic["consensus_label"],
+                                     diagnostic["edge_num"], diagnostic["distal_length"]])
     if write_file:
         with open(Path(dest_path) / f"{prefix}_{kind}_consensus.jplace", "w") as stream:
             json.dump(result, stream, indent=2, allow_nan=False)

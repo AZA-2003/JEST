@@ -32,6 +32,21 @@ JEST subgenome-consensus -i input.jplace -w -o results --method frechet \
     --genome-map '([^_]+)_(.+)' --num-threads 4 --get-error
 ```
 
+When either `write_file=True` or `get_error=True`, the method also writes
+`<input>_<placement|subgenome>_consensus.tsv`. Its columns are `query` (or `group`
+for grouped consensus), `consensus_label`, `edge_num`, and `distal_length`.
+Per-query output has one row per distinct name, including every name in `nm`;
+grouped output has one row per group, in result order.
+
+The consensus label is the original child-node label of the selected edge.
+Unnamed nodes use `edge_<edge_num>` without modifying the reference tree.
+Quoted Newick labels are decoded, and TSV quoting preserves tabs or other
+special characters. Labels need not be unique; the original integer edge ID
+and full-precision distal coordinate identify the attachment. At a vertex,
+the label follows the canonical selected edge, not necessarily that vertex's
+own label. `consensus_label` is also included in the returned diagnostics and
+jplace metadata.
+
 `get_error=True` writes `<input>_<placement|subgenome>_frechet.tsv`. Columns
 include group identity, original edge number, distal coordinate, logical query
 count, positive placement row count, mean squared distance, root mean squared

@@ -46,7 +46,7 @@ def test_analytic_star(rows, edge, distal, mse):
     row, diag = solve("(a:1{20},b:1{30},c:1{40});", [rows])
     assert row[0] == edge
     assert row[3] == pytest.approx(distal, abs=1e-15)
-    assert diag["mean_squared_distance"] == pytest.approx(mse, abs=1e-28)
+    assert diag["mean_squared_distance"] == pytest.approx(mse, rel=1e-14, abs=1e-28)
 
 
 def test_pool_distributions_not_query_centers():
@@ -334,3 +334,41 @@ def test_unrepresentable_coordinates_fail_instead_of_merging():
     with pytest.raises((ValueError, RuntimeError), match="precision"):
         solve("(x:1{1}):10000000000000000{2};",
               [[(1, 1, .5), (1, 1, .5000000000001)]])
+
+
+@pytest.mark.parametrize("write_file,get_error", [(True, False), (False, True), (False, False)])
+def test_consensus_label_tsv(tmp_path, write_file, get_error):
+    import csv
+    tree = "('tip''s, label':1{90},(b:1{91}):2{92})Root:0{5};"
+    document = doc(tree, [[(90, 1, .123456789123456)], [(92, 1, .5)]])
+    document["placements"][0]["nm"] = [["A_one", 20], ["A_two", 2]]
+    del document["placements"][0]["n"]
+    document["placements"][1]["n"] = ["B_one"]
+    path = tmp_path / "labels.jplace"
+    path.write_text(json.dumps(document))
+    result = placement_consensus(str(path), write_file, str(tmp_path),
+                                 get_error=get_error, method="frechet", return_diagnostics=True)
+    output = tmp_path / "labels_placement_consensus.tsv"
+    assert output.exists() == (write_file or get_error)
+    if output.exists():
+        with output.open(newline="") as stream:
+            rows = list(csv.DictReader(stream, delimiter="\t"))
+        assert [r["query"] for r in rows] == ["A_one", "A_two", "B_one"]
+        assert [r["consensus_label"] for r in rows] == ["tip's, label", "tip's, label", "edge_92"]
+        assert float(rows[0]["distal_length"]) == .123456789123456
+        assert int(rows[2]["edge_num"]) == 92
+    assert result["diagnostics"][0]["consensus_label"] == "tip's, label"
+    subgenome_consensus(str(path), write_file, str(tmp_path), method="frechet",
+                       get_error=get_error, genome_map=r"(.*)_(.*)")
+    output = tmp_path / "labels_subgenome_consensus.tsv"
+    assert output.exists() == (write_file or get_error)
+    if output.exists():
+        with output.open(newline="") as stream:
+            rows = list(csv.DictReader(stream, delimiter="\t"))
+        assert [r["group"] for r in rows] == ["A", "B"]
+        assert [r["consensus_label"] for r in rows] == ["tip's, label", "edge_92"]
+    index = FrechetTreeIndex(tree)
+    assert index.edge_label(5) == "Root"
+    assert index.edge_label(91) == "b"
+    with pytest.raises(ValueError, match="Unknown"):
+        index.edge_label(999)

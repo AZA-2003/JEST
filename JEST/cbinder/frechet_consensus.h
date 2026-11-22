@@ -23,6 +23,7 @@ class FrechetTreeIndex {
 public:
     explicit FrechetTreeIndex(const std::string& newick);
     ~FrechetTreeIndex();
+    std::string edge_label(unsigned long long edge_num) const;
     double edge_length(unsigned long long edge_num) const;
     std::vector<FrechetResult> solve_batch(
         const std::vector<unsigned long long>& edges,

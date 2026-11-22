@@ -17,7 +17,7 @@
 namespace {
 using Real = long double;
 using Id = unsigned long long;
-struct Raw { int parent = -1; double length = 0; Id id = 0; bool annotated = false; };
+struct Raw { int parent = -1; double length = 0; Id id = 0; bool annotated = false; std::string label; };
 struct Parser {
     const std::string& s; size_t pos = 0;
     void space() { while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos; }
@@ -28,13 +28,17 @@ struct Parser {
             ++pos; bool closed = false;
             while (pos < s.size()) {
                 if (s[pos++] == '\'') {
-                    if (pos < s.size() && s[pos] == '\'') ++pos;
+                    if (pos < s.size() && s[pos] == '\'') { r.label += '\''; ++pos; }
                     else { closed = true; break; }
-                }
+                } else r.label += s[pos-1];
             }
             if (!closed) throw std::invalid_argument("Unclosed quoted Newick label");
         } else {
+            size_t start = pos;
             while (pos < s.size() && std::string(":{},();[]").find(s[pos]) == std::string::npos) ++pos;
+            size_t end = pos;
+            while (end > start && std::isspace(static_cast<unsigned char>(s[end-1]))) --end;
+            r.label = s.substr(start, end-start);
         }
         if (peek() == ':') {
             ++pos; space(); char* end = nullptr; errno = 0;
@@ -76,7 +80,7 @@ struct Parser {
         return nodes;
     }
 };
-struct Edge { int parent, child; double length; Id id; };
+struct Edge { int parent, child; double length; Id id; std::string label; };
 struct Node {
     int parent = 0, level = 0, tin = 0, tout = 0, first = 0;
     Real depth = 0;
@@ -124,7 +128,7 @@ struct FrechetTreeIndex::Impl {
             if (r.annotated) {
                 if (!by_id.emplace(r.id, static_cast<int>(edges.size())).second) throw std::invalid_argument("Duplicate tree edge ID");
                 if (v != p) nodes[v].incoming = static_cast<int>(edges.size());
-                edges.push_back({p, v, r.length, r.id});
+                edges.push_back({p, v, r.length, r.id, r.label});
                 for (int endpoint : {p, v}) {
                     auto& n = nodes[endpoint];
                     if (!n.has_canonical || r.id < n.canonical) {
@@ -337,6 +341,10 @@ struct FrechetTreeIndex::Impl {
 
 FrechetTreeIndex::FrechetTreeIndex(const std::string& tree):impl(std::make_shared<Impl>(tree)){}
 FrechetTreeIndex::~FrechetTreeIndex()=default;
+std::string FrechetTreeIndex::edge_label(Id id) const {
+    const auto& edge = impl->edges[impl->edge_index(id)];
+    return edge.label.empty() ? "edge_"+std::to_string(id) : edge.label;
+}
 double FrechetTreeIndex::edge_length(Id id) const { return impl->edges[impl->edge_index(id)].length; }
 std::vector<FrechetResult> FrechetTreeIndex::solve_batch(const std::vector<Id>& ids,const std::vector<double>& distal,const std::vector<double>& weights,const std::vector<Id>& offsets,const std::vector<Id>& queries,int threads,bool profile) const {
     if(threads<=0)throw std::invalid_argument("num_threads must be positive");
