@@ -16,5 +16,5 @@ if [[ $(uname -s) == Darwin ]]; then
 fi
 "$SWIG" -c++ -python -outdir . cbinder/CTree.i
 "$CXX" -std=c++17 -O3 -fPIC "${OMP_FLAGS[@]}" -I "$PY_INCLUDE" \
-    cbinder/CTree_utils.cpp cbinder/CTree.cpp cbinder/frechet_consensus.cpp \
+    cbinder/CTree_utils.cpp cbinder/CTree.cpp cbinder/tree_consensus.cpp \
     cbinder/CTree_wrap.cxx "${LINK_FLAGS[@]}" -o _CTree.so

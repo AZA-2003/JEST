@@ -229,7 +229,7 @@ PYTHON=python3 SWIG=swig CXX=clang++ OPENMP_PREFIX="$(brew --prefix libomp)" \
 
 python -m pip install .
 python -m pytest test/test_frechet.py test/test_frechet_filtering.py -q
-PYTHONPATH=. python test/benchmark_frechet.py --nodes 100000
+PYTHONPATH=. python test/benchmark_tree_consensus.py --nodes 100000
 ```
 
 The build generates `JEST/CTree.py` and `JEST/cbinder/CTree_wrap.cxx`; do not edit
@@ -249,7 +249,7 @@ parallel execution, CLI outputs, and disabled-filter bypass.
 
 ## Index lifetime and complexity
 
-`JEST.CTree.FrechetTreeIndex(tree)` is immutable and can solve successive numeric
+`JEST.CTree.TreeConsensusIndex(tree)` is immutable and can solve successive numeric
 batches without rebuilding the index. `solve_batch` accepts integer edge IDs,
 double distal coordinates, positive double weights, group offsets, query counts,
 and a positive thread count. Callers of this low-level interface must normalize
@@ -308,3 +308,17 @@ proximity using the same index, grouping, and serialization. It requires an
 explicit `kernel_alpha` and currently rejects filtering combinations. See
 [exponential-mode documentation](exponential_mode.md) for its objective,
 deterministic tie policy, API, and diagnostics.
+
+### Shared code names and compatibility
+
+The method-neutral implementation is `JEST/tree_consensus.py` and
+`JEST/cbinder/tree_consensus.{h,cpp}`. Its shared public types are
+`TreeConsensusIndex`, `ConsensusResult`, and `TreePoint` (`ConsensusResults` and
+`TreePoints` for the SWIG vectors). `JEST.frechet.consensus` and
+`JEST.frechet.run` remain compatible imports, and the old `FrechetTreeIndex`,
+`FrechetResult`, `FrechetPoint`, and vector names remain Python aliases. C++
+callers can still include `frechet_consensus.h` for the corresponding type aliases.
+Use `test/benchmark_tree_consensus.py` for either method; the previous benchmark
+script remains a forwarding entry point. Method selectors, output filenames,
+metadata keys, and the existing `solve_batch` signature have not changed.
+Fréchet-specific filtering stays in `frechet_filtering.py`.

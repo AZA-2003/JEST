@@ -11,7 +11,7 @@ import csv
 import json
 from pathlib import Path
 
-from .frechet import _prepare, _consensus_prepared, _membership, _real
+from .tree_consensus import _prepare_consensus_input, _solve_prepared_consensus, _resolve_query_groups, _finite_number
 
 SCORE_FIELDS = ["query", "group", "mean_distance", "null_percentile", "alpha", "filtered",
                 "reference_edge_num", "reference_distal_length"]
@@ -23,7 +23,7 @@ def _positive_integer(value, name):
 
 
 def _cutoff(value, name):
-    value = _real(value, name)
+    value = _finite_number(value, name)
     if not 0 <= value <= 1:
         raise ValueError(f"{name} must be between 0 and 1")
     return value
@@ -76,10 +76,10 @@ def filtered_consensus(document, *, genome_map, num_threads, pre_filter, post_fi
         pre_alpha = _cutoff(pre_alpha, "pre_alpha")
     if post_filter:
         post_alpha = _cutoff(post_alpha, "post_alpha")
-    prepared = _prepare(document, num_threads)
+    prepared = _prepare_consensus_input(document, num_threads)
     index, distributions, names_by_record = prepared
     names = [name for row in names_by_record for name in row]
-    mapping = _membership(names, genome_map)
+    mapping = _resolve_query_groups(names, genome_map)
     original_groups = list(dict.fromkeys(mapping[name] for name in names))
     # Sample once outside workers, then reuse these points for both calibrations.
     samples = index.random_points(trials * random_placements, random_seed)
@@ -91,7 +91,7 @@ def filtered_consensus(document, *, genome_map, num_threads, pre_filter, post_fi
     pre_scores, post_scores = [], []
     retained = set(names)
     if pre_filter:
-        _, query_diagnostics = _consensus_prepared(document, prepared, grouped=False, num_threads=num_threads)
+        _, query_diagnostics = _solve_prepared_consensus(document, prepared, grouped=False, num_threads=num_threads)
         null_results = index.solve_batch(*null_buffers, [1] * trials, num_threads)
         pre_null = sorted(r.mean_distance for r in null_results)
         for i, row in enumerate(names_by_record):
@@ -107,7 +107,7 @@ def filtered_consensus(document, *, genome_map, num_threads, pre_filter, post_fi
         for name in row:
             if name in retained:
                 groups.setdefault(mapping[name], []).append(i)
-    result, diagnostics = _consensus_prepared(document, prepared, grouped=True,
+    result, diagnostics = _solve_prepared_consensus(document, prepared, grouped=True,
                                               num_threads=num_threads, groups=groups)
     if post_filter and groups:
         references = {d["group"]: d for d in diagnostics}

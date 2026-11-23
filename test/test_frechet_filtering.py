@@ -8,8 +8,8 @@ import pytest
 from typer.testing import CliRunner
 from JEST import subgenome_consensus
 from JEST.JEST import app
-from JEST.CTree import FrechetTreeIndex
-from JEST.frechet import consensus
+from JEST.CTree import TreeConsensusIndex
+from JEST.tree_consensus import consensus
 from JEST.frechet_filtering import filtered_consensus, _score
 
 
@@ -71,7 +71,7 @@ def test_both_stages_renormalize_and_preserve_partial_nm():
 
 
 def test_null_sampling_and_distance_primitives():
-    index = FrechetTreeIndex("(a:1{1},b:3{2}):2{3};")
+    index = TreeConsensusIndex("(a:1{1},b:3{2}):2{3};")
     assert list(index.random_points(0, 42)) == []
     with pytest.raises((OverflowError, TypeError)):
         index.random_points(-1, 42)
@@ -100,7 +100,7 @@ def test_seed_thread_reproducibility_and_stage_specific_calibration():
     assert first == parallel
     report = first[-1]
     # Independently reconstruct each stage's null distribution.
-    index = FrechetTreeIndex(doc["tree"])
+    index = TreeConsensusIndex(doc["tree"])
     samples = list(index.random_points(1280, 48))
     pre_null, post_null = [], []
     center = first[1][0]["distal_length"]
@@ -160,13 +160,13 @@ def test_disabled_filters_and_alias_cli_outputs(tmp_path, monkeypatch):
     doc = document([[(0, 1)], [(0, 1)], [(0, 1)], [(10, 1)]])
     path = tmp_path / "input.jplace"
     path.write_text(json.dumps(doc))
-    original = FrechetTreeIndex.random_points
+    original = TreeConsensusIndex.random_points
     def forbidden(*args):
         raise AssertionError("Disabled filtering generated a null distribution")
-    monkeypatch.setattr(FrechetTreeIndex, "random_points", forbidden)
+    monkeypatch.setattr(TreeConsensusIndex, "random_points", forbidden)
     baseline = subgenome_consensus(str(path), False, method="frechet", trials=0, random_dist_path="unused.txt")
     assert baseline[1] == doc["placements"]
-    monkeypatch.setattr(FrechetTreeIndex, "random_points", original)
+    monkeypatch.setattr(TreeConsensusIndex, "random_points", original)
     aliased = subgenome_consensus(str(path), False, method="frechet", filter_queries=True, trials=32)
     explicit = subgenome_consensus(str(path), False, method="frechet", post_filter=True, trials=32)
     assert aliased == explicit
@@ -186,13 +186,13 @@ def test_disabled_filters_and_alias_cli_outputs(tmp_path, monkeypatch):
 
 
 def test_index_reused_partial_empty_groups_mapping_and_weight_invariance(tmp_path, monkeypatch):
-    import JEST.frechet as module
-    actual = module.FrechetTreeIndex
+    import JEST.tree_consensus as module
+    actual = module.TreeConsensusIndex
     constructed = []
     def counted(tree):
         constructed.append(tree)
         return actual(tree)
-    monkeypatch.setattr(module, "FrechetTreeIndex", counted)
+    monkeypatch.setattr(module, "TreeConsensusIndex", counted)
     doc = document([[(0, 1)], [(0, 1), (10, 1)]], ["good", "bad"])
     mapping = tmp_path / "map.tsv"
     mapping.write_text("good\tA\nbad\tB\n")

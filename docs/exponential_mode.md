@@ -118,15 +118,15 @@ inside a group solve.
 The low-level reusable API is:
 
 ```python
-from JEST.CTree import FrechetTreeIndex
-index = FrechetTreeIndex(annotated_newick)
+from JEST.CTree import TreeConsensusIndex
+index = TreeConsensusIndex(annotated_newick)
 results = index.exponential_mode_batch(
     edge_ids, distal_lengths, positive_weights, group_offsets, query_counts,
     kernel_alpha, threads, profile=False,
 )
 ```
 
-It shares the existing `FrechetResult` container and SWIG result-vector
+It shares the `ConsensusResult` container and SWIG result-vector
 conversion; kernel-specific fields are populated only by exponential mode.
 The positional signature and behavior of `solve_batch` remain intact. Repeated
 calls with different decay rates reuse the same index; attenuation is local to
@@ -139,7 +139,7 @@ Generated SWIG files remain generated. Run the full regression suites with:
 ```bash
 python -m pytest test/test_frechet.py test/test_frechet_filtering.py \
     test/test_exponential_mode.py -q
-PYTHONPATH=. python test/benchmark_frechet.py --method exponential_mode \
+PYTHONPATH=. python test/benchmark_tree_consensus.py --method exponential_mode \
     --nodes 100000 --kernel-alpha 0.001 --kernel-alpha 1 --kernel-alpha 100
 ```
 

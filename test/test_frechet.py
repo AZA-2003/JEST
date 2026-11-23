@@ -9,8 +9,8 @@ from typer.testing import CliRunner
 
 from JEST import placement_consensus, subgenome_consensus
 from JEST.JEST import app
-from JEST.CTree import FrechetTreeIndex
-from JEST.frechet import consensus
+from JEST.CTree import TreeConsensusIndex
+from JEST.tree_consensus import consensus
 
 FIELDS = ["edge_num", "like_weight_ratio", "distal_length", "pendant_length"]
 
@@ -261,7 +261,7 @@ def test_random_exhaustive_oracle():
             e = rng.randrange(1, n)
             points.append((e, rng.choice([0, lengths[e], rng.random()*lengths[e]]), rng.random()))
         tree = make_newick(parent, lengths)
-        index = FrechetTreeIndex(tree)
+        index = TreeConsensusIndex(tree)
         result = index.solve_batch([p[0] for p in points], [p[1] for p in points], [p[2] for p in points], [0, len(points)], [1], 1)[0]
         best, distance = oracle(parent, lengths, points)
         scale = max(1, sum(lengths))
@@ -273,7 +273,7 @@ def test_deep_comb_and_unobserved_edge():
     # Iterative parser/index; the midpoint must be found on an unoccupied edge.
     n = 10000
     tree = "(" * n + "x:1{1}" + "".join(f"):1{{{v}}}" for v in range(2, n+1)) + ");"
-    index = FrechetTreeIndex(tree)
+    index = TreeConsensusIndex(tree)
     result = index.solve_batch([1, n], [0, 1], [1, 1], [0, 2], [2], 1)[0]
     assert result.mean_squared_distance == pytest.approx((n/2)**2)
     assert result.edge_num not in [1, n]
@@ -281,7 +281,7 @@ def test_deep_comb_and_unobserved_edge():
 
 
 def test_batch_validation_and_reuse():
-    index = FrechetTreeIndex("(x:1{7});")
+    index = TreeConsensusIndex("(x:1{7});")
     assert len(index.solve_batch([], [], [], [0], [], 2)) == 0
     for _ in range(3):
         assert index.solve_batch([7], [.25], [1], [0, 1], [1], 2)[0].distal_length == .25
@@ -367,7 +367,7 @@ def test_consensus_label_tsv(tmp_path, write_file, get_error):
             rows = list(csv.DictReader(stream, delimiter="\t"))
         assert [r["group"] for r in rows] == ["A", "B"]
         assert [r["consensus_label"] for r in rows] == ["tip's, label", "edge_92"]
-    index = FrechetTreeIndex(tree)
+    index = TreeConsensusIndex(tree)
     assert index.edge_label(5) == "Root"
     assert index.edge_label(91) == "b"
     with pytest.raises(ValueError, match="Unknown"):

@@ -1,7 +1,7 @@
 %module CTree
 %{
     #define SWIG_FILE_WITH_INIT
-    #include "frechet_consensus.h"
+    #include "tree_consensus.h"
     #include "compact_tree.h"
     #include "CTree_utils.h"
     #include "map"
@@ -222,7 +222,16 @@ std::vector<std::vector<float>> find_length_sc(std::string jtree, std::string tr
 }
 %template(UInt64Vector) std::vector<unsigned long long>;
 // Both batch methods share the immutable index and result conversion below.
-%include "frechet_consensus.h"
-%template(FrechetResults) std::vector<FrechetResult>;
+%include "tree_consensus.h"
+%template(ConsensusResults) std::vector<ConsensusResult>;
 
-%template(FrechetPoints) std::vector<FrechetPoint>;
+%template(TreePoints) std::vector<TreePoint>;
+
+// Preserve generated Python API names used by earlier JEST releases.
+%pythoncode %{
+FrechetTreeIndex = TreeConsensusIndex
+FrechetResult = ConsensusResult
+FrechetPoint = TreePoint
+FrechetResults = ConsensusResults
+FrechetPoints = TreePoints
+%}

@@ -162,7 +162,7 @@ def placement_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
     if method != "exponential_mode" and kernel_alpha is not None:
         raise ValueError("kernel_alpha is only supported with method='exponential_mode'")
     if method in ("frechet", "exponential_mode"):
-        from .frechet import run
+        from .tree_consensus import run
         return run(jplace_path, grouped=False, write_file=write_file,
                    dest_path=dest_path, num_threads=num_threads, get_error=get_error,
                    edge_error=edge_error, return_diagnostics=return_diagnostics,
@@ -241,7 +241,7 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
     if method != "exponential_mode" and kernel_alpha is not None:
         raise ValueError("kernel_alpha is only supported with method='exponential_mode'")
     if method in ("frechet", "exponential_mode"):
-        from .frechet import run
+        from .tree_consensus import run
         return run(jplace_path, grouped=True, write_file=write_file,
                    dest_path=dest_path, num_threads=num_threads, get_error=get_error,
                    edge_error=edge_error, return_diagnostics=return_diagnostics,

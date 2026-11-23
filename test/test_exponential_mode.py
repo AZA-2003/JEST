@@ -9,13 +9,13 @@ import pytest
 from typer.testing import CliRunner
 from JEST import placement_consensus, subgenome_consensus
 from JEST.JEST import app
-from JEST.CTree import FrechetTreeIndex
-from JEST.frechet import consensus
+from JEST.CTree import TreeConsensusIndex
+from JEST.tree_consensus import consensus
 from test_frechet import make_newick
 
 
 def solve(tree, points, alpha=1, index=None, threads=1):
-    index = index or FrechetTreeIndex(tree)
+    index = index or TreeConsensusIndex(tree)
     return index.exponential_mode_batch([e for e, d, w in points], [d for e, d, w in points],
         [w for e, d, w in points], [0, len(points)], [1], alpha, threads)[0]
 
@@ -74,7 +74,7 @@ def test_near_ties_compare_to_maximum_and_tiny_alpha():
 
 def test_zero_components_positive_stem_and_repeated_alpha():
     tree = "((a:0{8},b:0{7}):0{6},c:1{9}):2{3};"
-    index = FrechetTreeIndex(tree)
+    index = TreeConsensusIndex(tree)
     first = solve(tree, [(8,0,1),(7,0,1)], .3,index)
     assert (first.edge_num,first.distal_length,first.kernel_score) == (3,0,1)
     for alpha in [.01,100,.01]:
@@ -138,7 +138,7 @@ def test_filter_rejection_and_batch_validation(tmp_path):
     for options in [dict(pre_filter=True),dict(post_filter=True),dict(filter_queries=True),dict(pre_alpha=.2),dict(random_dist_path='old.txt')]:
         with pytest.raises(ValueError,match='not yet calibrated'):
             subgenome_consensus(str(path),False,method='exponential_mode',kernel_alpha=1,**options)
-    index=FrechetTreeIndex(doc['tree'])
+    index=TreeConsensusIndex(doc['tree'])
     assert len(index.exponential_mode_batch([],[],[],[0],[],1,4)) == 0
     for offsets,counts,threads in [([0,0],[1],1),([0,1],[0],1),([0,1],[1],0)]:
         with pytest.raises(ValueError):index.exponential_mode_batch([16777217],[0],[1],offsets,counts,1,threads)
@@ -214,7 +214,7 @@ def test_root_subdivision_invariance_and_high_degree_parallel():
     assert a.kernel_score==pytest.approx(b.kernel_score)
     assert a.kernel_score==pytest.approx(c.kernel_score)
     n=1000
-    index=FrechetTreeIndex('('+','.join(f'x{i}:1{{{i}}}' for i in range(n))+');')
+    index=TreeConsensusIndex('('+','.join(f'x{i}:1{{{i}}}' for i in range(n))+');')
     params=(list(range(n))*8,[0]*(8*n),[1]*(8*n),list(range(0,8*n+1,n)),[1]*8,.1)
     serial=index.exponential_mode_batch(*params,1)
     parallel=index.exponential_mode_batch(*params,4)
