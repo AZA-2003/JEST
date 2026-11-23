@@ -302,3 +302,9 @@ fixed k; index construction and index memory grow with reference size. Raw
 measurements, including clustered observations, both thread counts, phase
 worker times, and RSS, are in [frechet_benchmark.jsonl](frechet_benchmark.jsonl).
 The benchmark script can reproduce these measurements on other machines.
+
+An alternative `method="exponential_mode"` maximizes expected exponential
+proximity using the same index, grouping, and serialization. It requires an
+explicit `kernel_alpha` and currently rejects filtering combinations. See
+[exponential-mode documentation](exponential_mode.md) for its objective,
+deterministic tie policy, API, and diagnostics.

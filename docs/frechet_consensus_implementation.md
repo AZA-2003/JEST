@@ -1,8 +1,8 @@
-# Implementing weighted tree Frechet consensus in JEST
+# Implementing weighted tree consensus in JEST
 
 Implement an exact consensus attachment point by minimizing expected squared path distance on the reference tree. Preserve the full placement distribution of each query, normalize it independently, and give every query in a consensus group equal total weight. Use a shared tree index and a query-local virtual tree so the computation does not traverse the full reference tree for every consensus.
 
-This is an implementation specification, not an implemented feature. Repository observations refer to JEST commit `139e3541b3eee717c752cb5a58096d5ffac1f58c`, inspected on 2026-11-20. Source paths below are relative to the repository root so the handoff remains portable.
+The original Frechet specification below refers to JEST commit `139e3541b3eee717c752cb5a58096d5ffac1f58c`, inspected on 2026-11-20. Frechet code has subsequently been added; consult `docs/frechet_consensus.md` for its implemented behavior rather than treating the original integration observations as the current state. The final section, added on 2026-11-23, specifies an exponential-kernel mode extension; that section describes proposed work, not an implemented feature. Source paths below are relative to the repository root so the handoff remains portable.
 
 ## Agreed objective and statistical interpretation
 
@@ -342,4 +342,130 @@ Benchmark n around 10,000, 100,000, and several hundred thousand, with small and
 6. Validate grouping, serialization, precision, zero-length behavior, parallel execution, and legacy compatibility.
 7. Benchmark the shared-index batch path and document measured behavior and the precise complexity bound.
 
-The deliverable is a deterministic continuous tree Frechet consensus method with equal total contribution per query. No kernel bandwidth, density normalization, midpoint approximation, or nonlinear global optimizer belongs in this implementation.
+The Frechet deliverable is a deterministic continuous tree Frechet consensus method with equal total contribution per query. No kernel bandwidth, density normalization, midpoint approximation, or nonlinear global optimizer belongs in the Frechet solver. The optional exponential-kernel solver below has its own decay parameter.
+
+## Exponential kernel mode extension
+
+### Objective and behavior
+
+Add an optional `exponential_mode` method that maximizes
+
+\[
+ S(c)=\frac{1}{W}\sum_j a_j\exp(-\alpha d(c,x_j)),
+ \qquad W=\sum_j a_j,\quad \alpha>0.
+\]
+
+Use the same equal-query pooling as Frechet consensus: independently normalize each query's placement distribution, then combine queries with equal total contribution. The Python implementation currently omits the common 1/q factor when passing pooled weights to C++; consequently divide the final kernel sum by the actual W, not by row count. Positive rescaling of all pooled weights must leave the answer and normalized score unchanged.
+
+This maximizes expected exponential proximity, or equivalently minimizes expected loss 1-exp(-alpha*d). It is not a normalized probability density on the tree and is not the maximum-likelihood center of independent observations under exponential radial decay. Do not introduce Z(c) or any topology-dependent normalization.
+
+Alpha has inverse branch-length units. The characteristic distance 1/alpha gives attenuation exp(-1). Require an explicit finite positive `kernel_alpha` for this method initially; do not invent a data-dependent default. In the CLI use `--kernel-alpha`. JEST already uses `alpha` for filtering, so those parameters must remain separate. Reject a supplied kernel parameter for other methods rather than silently ignoring it. Reject zero: at alpha=0 every point ties and the candidate reduction below does not describe all optimizers.
+
+Unlike the Frechet mean, this objective can have multiple global maxima. For two distinct points, an endpoint wins; equal weights tie, and unequal weights select the heavier endpoint. For three equal-weight placements on equal-length star arms, a branching vertex can win. This behavior is part of the method, not a numerical failure.
+
+### Exact candidate reduction
+
+Let H be the smallest subtree connecting the positive-weight placements. For a point c outside H with projection p onto H,
+
+\[
+ S(c)=e^{-\alpha d(c,p)}S(p)\le S(p).
+\]
+
+Therefore a maximum occurs in H. Split H at placement points and its branching vertices, exactly as in the virtual-tree construction. On a remaining segment of length ell, with coordinate s from its first endpoint, the unnormalized score has the form
+
+\[
+ S_{\rm raw}(s)=A e^{-\alpha s}+B e^{-\alpha(\ell-s)},\qquad A,B\ge0.
+\]
+
+There are no placements or paths to placements branching off that segment's interior. Thus
+
+\[
+ S_{\rm raw}''(s)=\alpha^2 S_{\rm raw}(s)>0.
+\]
+
+Its maximum is at an endpoint. All necessary candidates are placement points and retained original branching vertices, O(k) in total. Retaining the extra original endpoints used by the existing virtual-tree builder is harmless: these are valid tree points and cannot beat the true global maximum. Degree-two original vertices suppressed on compressed paths need not be evaluated. The same argument covers arbitrary distances between the observations; proximity is not an assumption.
+
+### Two message passes
+
+Root the virtual tree as in the Frechet implementation. Let a[v] be mass exactly at vertex v and let r[u,v]=exp(-alpha*ell[u,v]). Compute this attenuation once per virtual edge using its full compressed length.
+
+Postorder computes the contribution of observations in a vertex's descendant subtree:
+
+\[
+ D[v]=a[v]+\sum_{z\text{ child of }v}r[v,z]D[z].
+\]
+
+Preorder computes the contribution of all other observations, initializing U[root]=0:
+
+\[
+ U[z]=r[v,z]\left(U[v]+a[v]+\sum_{b\ne z}r[v,b]D[b]\right).
+\]
+
+Then the raw score at v is D[v]+U[v]. Evaluate every virtual vertex and select the largest score. Compute sibling-exclusion sums with prefix/suffix sums so the pass is O(k) even at high-degree vertices, and so it never subtracts nearly equal nonnegative totals.
+
+```text
+for v in postorder:
+    down[v] = own_mass[v]
+    for child in children[v]:
+        attenuation[child] = exp(-kernel_alpha * edge_length(v, child))
+        down[v] += attenuation[child] * down[child]
+
+up[root] = 0
+for v in preorder:
+    contributions = [attenuation[z] * down[z] for z in children[v]]
+    prefix, suffix = nonnegative_prefix_suffix_sums(contributions)
+    score[v] = down[v] + up[v]
+    for i, z in enumerate(children[v]):
+        outside = up[v] + own_mass[v] + prefix[i] + suffix[i+1]
+        up[z] = attenuation[z] * outside
+
+winner = argmax_with_deterministic_ties(score)
+output_point = serialize_existing_virtual_location(winner)
+kernel_score = direct_weighted_kernel_sum(output_point, original_points) / W
+```
+
+Prefix[i] sums indices strictly before i and suffix[i+1] sums indices strictly after i. Preserve `own_mass` before any subtree accumulation; the existing Frechet `mass` field is overwritten with subtree mass and cannot be used as a[v] afterwards.
+
+Do not reuse the Frechet descent based on a unique negative derivative or its quadratic edge minimizer. Exponential mode requires scanning all candidate vertex scores; it does not have Frechet's uniqueness or global convex minimization property.
+
+### Integration with the implemented code
+
+The inspected checkout has `FrechetTreeIndex::Impl::solve` in `JEST/cbinder/frechet_consensus.cpp`, `FrechetTreeIndex::solve_batch` in its header, and pooling/serialization in `JEST/frechet.py`. The virtual tree is presently constructed inside `Impl::solve`. Extract its construction, location descriptors, traversal order, and original own masses into an internal reusable helper. Keep the immutable parser/index and its coordinate validation unchanged. Preserve any median implementation added on another branch; do not replace or narrow an existing method selector to the methods listed here.
+
+Add a new low-level entry point such as `exponential_mode_batch(..., kernel_alpha, threads, profile=false)` with the same numeric buffers, group offsets, query counts, and exception handling as the existing batch method. A separate entry point avoids changing the positional signature or default behavior of `solve_batch`. Add its declaration and result conversion in `JEST/cbinder/CTree.i`, regenerate SWIG artifacts, and rebuild the extension.
+
+Use a dedicated result struct, or a deliberately generalized shared result type, with a `kernel_score` field. Do not repurpose `mean_squared_distance` to store the optimized score. Optionally compute ordinary mean distance and MSE at the winning point for comparison, labeling them as diagnostics rather than optimized objectives. They require only O(k) extra indexed distance evaluations.
+
+Generalize the Python dispatch while retaining its normalization, logical-query identities, multi-name handling, metadata conventions, and pendant-length reporting. Add `method="exponential_mode"` to both placement and grouped consensus entry points. Preserve existing return shapes and rich-diagnostics behavior. Metadata must identify the method, kernel_alpha, equal-query weighting, score definition, and tie policy; do not label exponential results as Frechet. Keep likelihood a documented placeholder rather than treating the kernel score as sequence likelihood.
+
+The new method does not automatically inherit Frechet filtering calibration. Existing filtering can be retained as an explicitly documented independent Frechet-based preprocessing option, or disabled for this method initially. Any filtering that substitutes an exponential-mode center or kernel score requires matching null calibration. In particular, do not silently reuse Frechet null scores after changing the statistic. Reject unsupported filter combinations explicitly until their semantics and tests are implemented.
+
+### Numerical details and ties
+
+Use the existing extended-precision accumulator type for messages and sums where available. Compute alpha*ell without an avoidable intermediate double overflow. Attenuation underflow to zero for extremely large alpha*ell represents a contribution below working precision; never discard a placement's self-contribution. Every group with positive mass has a strictly positive winning raw score.
+
+For extremely small alpha, all normalized scores approach one and differences may be below working precision. Use compensated sums and extended precision, and test small-alpha cases. If distinguishability below that precision is required, use higher precision or a separately validated small-alpha expansion; do not promise exact ordering for arbitrarily close scores. The leading small-alpha term favors tree medians, but is not generally an exact substitute for the finite-alpha objective.
+
+Select the numerical maximum first. For scores equal within a declared tolerance relative to the group mass, report a numerical tie and choose deterministically, for example using original vertex identity or (original edge ID, distal coordinate) for interior placements. Apply any tolerance relative to the maximum, not as a chain of pairwise near-equality comparisons. A tolerance tie is not proof of an exact mathematical tie. Do not average tied locations: the midpoint of two modes can have a lower score.
+
+Original vertices already have canonical serialized endpoints, and every interior candidate is an observed coordinate. Preserve that provenance during virtual-tree construction to serialize the winner directly, avoiding the weighted-ancestor search required for a Frechet interior optimum. Do not locate every candidate on an original edge merely to break ties. If reusing the existing generic `locate` routine, call it once after selection and retain the extra O(log n) term in the advertised bound.
+
+Recompute the selected score at the serialized coordinate with direct indexed point distances as an O(k) consistency check. The normalized result must lie in (0,1] up to roundoff. A material disagreement with the message score is an implementation error. A group supported at a single geometric point has score one.
+
+### Complexity
+
+Reuse O(n log n) shared preprocessing. A group takes O(k log(k+1)) to construct its virtual tree, O(k) for both message passes and candidate selection, and O(k) for direct verification, with O(k) working memory. Saving candidate provenance gives O(1) final serialization and the full O(k log(k+1)) bound. Reusing generic final localization instead gives O(k log(k+1)+log n). There are O(k) exponential evaluations per pass/check, no O(k squared) production scoring, and no per-query traversal of original intervening edges. Parallelize over groups using the existing immutable index and thread-local buffers.
+
+### Tests and acceptance criteria
+
+1. One geometric point, including duplicates: return that point with normalized score one.
+2. Two points separated by L: endpoint scores are (a+b*exp(-alpha*L))/W and (b+a*exp(-alpha*L))/W. The heavier endpoint wins; equal masses tie. Verify the midpoint scores lower for positive L and alpha.
+3. Three equally weighted unit star tips: put r=exp(-alpha). The center scores r and each tip scores (1+2*r*r)/3. The center wins for 1/2<r<1, tips win for 0<r<1/2, and all four candidates tie at r=1/2. Test all regimes and deterministic ties.
+4. Multiple distinct placements on one edge: include every observed coordinate as a candidate and compare directly evaluated scores. Never collapse the whole edge's mass to an endpoint.
+5. Equal-query pooling: change the number of rows by splitting weights among duplicate coordinates, or rescale one query's raw weights before normalization. The normalized answer and score must remain unchanged.
+6. Tiny/large kernel_alpha, long compressed paths, high-degree vertices, zero-length components, true vertex ties, near ties, positive root stems, and nonuniform branch lengths must follow the stated precision and coordinate policies.
+7. Build an independent small-tree oracle by subdividing the full original tree at every observed point and directly scoring every resulting vertex. The convexity proof makes this a complete finite candidate oracle; it must not reuse production message passes. Compare maximum score and returned geometric location/tie membership on seeded random trees. A dense grid may supplement but must not replace this oracle.
+8. Re-root and subdivide unoccupied edges without changing geometry. The maximum score and unique winning point must be unchanged. Check serial/parallel agreement, field-order independence, metadata, parameter validation, and both API/CLI routes.
+9. Benchmark fixed k with increasingly long original paths. Solve time must not grow linearly with original-tree size. Include repeated calls with different kernel_alpha values using the same tree index.
+
+This extension adds an exact-in-real-arithmetic exponential proximity mode, not the Gaussian-kernel mode. Squaring distance inside the exponential invalidates the endpoint convexity argument and requires a different optimizer.

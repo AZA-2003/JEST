@@ -221,6 +221,7 @@ std::vector<std::vector<float>> find_length_sc(std::string jtree, std::string tr
     catch (const std::exception& e) { SWIG_exception(SWIG_RuntimeError, e.what()); }
 }
 %template(UInt64Vector) std::vector<unsigned long long>;
+// Both batch methods share the immutable index and result conversion below.
 %include "frechet_consensus.h"
 %template(FrechetResults) std::vector<FrechetResult>;
 

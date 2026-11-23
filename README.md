@@ -56,3 +56,9 @@ each query's own consensus) and/or `--post-filter` (distance from its group
 consensus). Both are off by default; `--pre-alpha` and `--post-alpha` control
 their separate null-percentile cutoffs. See the usage guide for scoring and
 retained-query output semantics.
+
+For exponential proximity modes, use `--method exponential_mode --kernel-alpha A`
+with an explicit positive decay rate. This method shares equal-query weighting
+and the tree index with Fréchet consensus, but can return multiple numerical
+modes (resolved deterministically) and has its own `kernel_score` diagnostic.
+See [exponential-mode usage and numerical conventions](docs/exponential_mode.md).

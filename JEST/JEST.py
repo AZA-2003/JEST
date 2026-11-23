@@ -150,21 +150,25 @@ def placement_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         num_threads:  Annotated[int, typer.Option("-n","--num-threads", help = "number of parallel threads (for performance purposes).", show_default = True)] = 1,
                         get_error: Annotated[bool, typer.Option("-e","--get-error", help = "whether to measure weighted distance of consensus to its constituents.", show_default = True)] = False,
                         edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False,
-                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy or frechet.")] = "legacy",
-                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False):
+                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy, frechet, or exponential_mode.")] = "legacy",
+                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return consensus diagnostics alongside placements (Python API).")] = False,
+                        kernel_alpha: Annotated[float | None, typer.Option("--kernel-alpha", help="Required positive decay rate for exponential_mode; inverse branch-length units.")] = None):
 
     """
     Summarizes multiple placements for a given query to a single placement on the tree.
     """
-    if method not in ("legacy", "frechet"):
-        raise ValueError("method must be 'legacy' or 'frechet'")
-    if method == "frechet":
+    if method not in ("legacy", "frechet", "exponential_mode"):
+        raise ValueError("method must be 'legacy', 'frechet', or 'exponential_mode'")
+    if method != "exponential_mode" and kernel_alpha is not None:
+        raise ValueError("kernel_alpha is only supported with method='exponential_mode'")
+    if method in ("frechet", "exponential_mode"):
         from .frechet import run
         return run(jplace_path, grouped=False, write_file=write_file,
                    dest_path=dest_path, num_threads=num_threads, get_error=get_error,
-                   edge_error=edge_error, return_diagnostics=return_diagnostics)
+                   edge_error=edge_error, return_diagnostics=return_diagnostics,
+                   method=method, kernel_alpha=kernel_alpha)
     if return_diagnostics:
-        raise ValueError("return_diagnostics requires method='frechet'")
+        raise ValueError("return_diagnostics requires an indexed consensus method")
 
     jplace_file = read_jplace(jplace_path)
     jplace_tree = jplace_file["tree"]
@@ -220,20 +224,23 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         edge_error: Annotated[bool, typer.Option("-ed", "--edge-error", help = "whether to measure error in terms of number of edges or branch lengths.", show_default = True)] = False,
                         genome_map: Annotated[str, typer.Option("-g", "--genome-map", help = "regex pattern or file that maps subgenomes to genomes.\n Passing nothing assumes that all subgenomes belong to the same genome.", show_default = True)]= "",
                         multi_copy: Annotated[bool, typer.Option("-m", "--multi-copy", "--multi", help = "whether the subgenomes are single or multicopy.\n Multicopied genomes have their contributions to the consensus split among them.")] = False,
-                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy or frechet.")] = "legacy",
-                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False,
+                        method: Annotated[str, typer.Option("--method", help="Consensus method: legacy, frechet, or exponential_mode.")] = "legacy",
+                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return consensus diagnostics alongside placements (Python API).")] = False,
                         pre_filter: Annotated[bool, typer.Option("--pre-filter/--no-pre-filter", help="Frechet: filter dispersion around each query's own consensus.")] = False,
                         post_filter: Annotated[bool, typer.Option("--post-filter/--no-post-filter", help="Frechet: mark queries distant from group consensus, without refitting.")] = False,
                         pre_alpha: Annotated[float | None, typer.Option("--pre-alpha", help="Pre-filter null percentile cutoff; defaults to alpha.")] = None,
                         post_alpha: Annotated[float | None, typer.Option("--post-alpha", help="Post-filter null percentile cutoff; defaults to alpha.")] = None,
-                        random_seed: Annotated[int, typer.Option("--random-seed", help="Frechet filtering null-sampling seed.")] = 48):
+                        random_seed: Annotated[int, typer.Option("--random-seed", help="Frechet filtering null-sampling seed.")] = 48,
+                        kernel_alpha: Annotated[float | None, typer.Option("--kernel-alpha", help="Required positive decay rate for exponential_mode; inverse branch-length units.")] = None):
 
     """
     Summarizes multiple subgenome (contigs, genes, etc..) placements to a single placement on the tree. 
     """
-    if method not in ("legacy", "frechet"):
-        raise ValueError("method must be 'legacy' or 'frechet'")
-    if method == "frechet":
+    if method not in ("legacy", "frechet", "exponential_mode"):
+        raise ValueError("method must be 'legacy', 'frechet', or 'exponential_mode'")
+    if method != "exponential_mode" and kernel_alpha is not None:
+        raise ValueError("kernel_alpha is only supported with method='exponential_mode'")
+    if method in ("frechet", "exponential_mode"):
         from .frechet import run
         return run(jplace_path, grouped=True, write_file=write_file,
                    dest_path=dest_path, num_threads=num_threads, get_error=get_error,
@@ -242,11 +249,11 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                    pre_filter=pre_filter, post_filter=post_filter, pre_alpha=pre_alpha,
                    post_alpha=post_alpha, alpha=alpha, trials=trials,
                    random_placements=random_placements, random_seed=random_seed,
-                   random_dist_path=random_dist_path)
+                   random_dist_path=random_dist_path, method=method, kernel_alpha=kernel_alpha)
     if pre_filter or post_filter or pre_alpha is not None or post_alpha is not None or random_seed != 48:
         raise ValueError("The new pre/post filtering controls require method='frechet'")
     if return_diagnostics:
-        raise ValueError("return_diagnostics requires method='frechet'")
+        raise ValueError("return_diagnostics requires an indexed consensus method")
 
     try:
         if genome_map != "":

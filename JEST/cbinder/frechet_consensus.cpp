@@ -84,7 +84,7 @@ struct Parser {
 struct Edge { int parent, child; double length; Id id; std::string label; };
 struct Node {
     int parent = 0, level = 0, tin = 0, tout = 0, first = 0;
-    Real depth = 0;
+    Real depth = 0, depth_correction = 0;
     std::vector<int> children;
     Id canonical = std::numeric_limits<Id>::max();
     double canonical_distal = 0;
@@ -92,10 +92,26 @@ struct Node {
     int incoming = -1;
 };
 struct Point { int edge; Real distal, weight; };
-struct Location { int anchor; Real depth; }; // vertex or point above anchor
+struct Location { int anchor; Real depth; Real anchor_distal = 0; }; // vertex or point above anchor
 struct VirtualNode {
     Location loc; Real mass = 0, own = 0, down = 0, up_mass = 0, up = 0, outside = 0;
     std::vector<int> children;
+    int original_edge = -1;
+    Real original_distal = 0;
+};
+struct VirtualTree {
+    std::vector<VirtualNode> nodes;
+    std::vector<int> order;
+};
+// Neumaier accumulation preserves small nonnegative contributions.
+struct Sum {
+    Real value = 0, correction = 0;
+    void add(Real x) {
+        Real next = value+x;
+        correction += std::abs(value)>=std::abs(x) ? (value-next)+x : (x-next)+value;
+        value=next;
+    }
+    Real get() const { return value+correction; }
 };
 }
 
@@ -123,6 +139,11 @@ struct FrechetTreeIndex::Impl {
                 v = static_cast<int>(nodes.size()); nodes.emplace_back();
                 nodes[v].parent = p; nodes[v].level = nodes[p].level+1;
                 nodes[v].depth = nodes[p].depth + static_cast<Real>(r.length);
+                // Preserve the low-order part for constant-time local distances.
+                // The original depth/coordinate validation remains unchanged.
+                Real previous=nodes[p].depth, length=r.length, next=nodes[v].depth;
+                Real error=previous>=length ? (previous-next)+length : (length-next)+previous;
+                nodes[v].depth_correction=nodes[p].depth_correction+error;
                 if (!std::isfinite(nodes[v].depth) || !(nodes[v].depth > nodes[p].depth)) throw std::invalid_argument("Tree length dynamic range exceeds index precision");
                 nodes[p].children.push_back(v);
             }
@@ -185,7 +206,10 @@ struct FrechetTreeIndex::Impl {
         return nodes[x].level<nodes[y].level?x:y;
     }
     Real distance(int u,int v) const {
-        int a=lca(u,v); return (nodes[u].depth-nodes[a].depth)+(nodes[v].depth-nodes[a].depth);
+        int a=lca(u,v); Sum sum;
+        sum.add(nodes[u].depth-nodes[a].depth); sum.add(nodes[u].depth_correction-nodes[a].depth_correction);
+        sum.add(nodes[v].depth-nodes[a].depth); sum.add(nodes[v].depth_correction-nodes[a].depth_correction);
+        return sum.get();
     }
     int edge_index(Id id) const {
         auto it=by_id.find(id); if(it==by_id.end())throw std::invalid_argument("Unknown placement edge ID: "+std::to_string(id)); return it->second;
@@ -219,6 +243,57 @@ struct FrechetTreeIndex::Impl {
             (x.length-da)+distance(x.parent,y.child)+db,
             (x.length-da)+distance(x.parent,y.parent)+(y.length-db)});
     }
+    VirtualTree build_virtual_tree(const std::vector<Point>& points,size_t begin,size_t end,Real weight_scale=1) const {
+        std::vector<int> vertices;
+        std::map<int,std::map<Real,Sum>> interiors;
+        std::map<int,Sum> vertex_mass;
+        for(size_t i=begin;i<end;++i) {
+            auto x=points[i]; x.weight/=weight_scale; auto e=edges[x.edge];
+            vertices.push_back(e.parent); vertices.push_back(e.child);
+            if(x.distal==0)vertex_mass[e.child].add(x.weight);
+            else if(x.distal==e.length)vertex_mass[e.parent].add(x.weight);
+            else interiors[e.child][x.distal].add(x.weight);
+        }
+        auto sort_unique=[&]() {
+            std::sort(vertices.begin(),vertices.end(),[&](int a,int b){return nodes[a].tin<nodes[b].tin;});
+            vertices.erase(std::unique(vertices.begin(),vertices.end()),vertices.end());
+        };
+        sort_unique(); size_t count=vertices.size();
+        for(size_t i=1;i<count;++i)vertices.push_back(lca(vertices[i-1],vertices[i]));
+        sort_unique();
+        std::vector<VirtualNode> vt;
+        std::vector<int> stack;
+        for(int v:vertices) {
+            int idx=static_cast<int>(vt.size()); vt.push_back({{v,nodes[v].depth}});
+            vt[idx].original_edge=edge_index(nodes[v].canonical);
+            vt[idx].original_distal=nodes[v].canonical_distal;
+            auto m=vertex_mass.find(v); if(m!=vertex_mass.end())vt[idx].mass=m->second.get();
+            while(!stack.empty() && !ancestor(vt[stack.back()].loc.anchor,v))stack.pop_back();
+            if(!stack.empty()) {
+                int parent=stack.back(); auto it=interiors.find(v);
+                if(it!=interiors.end()) {
+                    // Merge only identical original distal coordinates. Distinct
+                    // inputs that collapse at root-depth precision are errors.
+                    const auto& ps=it->second;
+                    for(auto p=ps.rbegin();p!=ps.rend();++p) {
+                        Real depth=nodes[v].depth-p->first;
+                        if (!(depth>vt[parent].loc.depth && depth<nodes[v].depth))
+                            throw std::invalid_argument("Placement coordinate dynamic range exceeds index precision");
+                        int next=static_cast<int>(vt.size()); vt.push_back({{v,depth,p->first}});
+                        vt[next].mass=p->second.get();
+                        vt[next].original_edge=nodes[v].incoming; vt[next].original_distal=p->first;
+                        vt[parent].children.push_back(next); parent=next;
+                    }
+                }
+                vt[parent].children.push_back(idx);
+            }
+            stack.push_back(idx);
+        }
+        std::vector<int> order{0};
+        for(size_t i=0;i<order.size();++i)for(int c:vt[order[i]].children)order.push_back(c);
+        for(auto& v:vt)v.own=v.mass;
+        return {std::move(vt),std::move(order)};
+    }
     FrechetResult solve(const std::vector<Point>& points,size_t begin,size_t end,Id queries,bool profile) const {
         using Clock = std::chrono::steady_clock;
         auto started = profile ? Clock::now() : Clock::time_point{};
@@ -234,52 +309,9 @@ struct FrechetTreeIndex::Impl {
             return {edge.id, static_cast<double>(point.distal), 0, 0,
                     static_cast<size_t>(queries), 1};
         }
-        std::vector<int> vertices;
-        std::map<int,std::map<Real,Real>> interiors;
-        std::map<int,Real> vertex_mass;
-        for(size_t i=begin;i<end;++i) {
-            auto x=points[i]; auto e=edges[x.edge];
-            vertices.push_back(e.parent); vertices.push_back(e.child);
-            if(x.distal==0)vertex_mass[e.child]+=x.weight;
-            else if(x.distal==e.length)vertex_mass[e.parent]+=x.weight;
-            else interiors[e.child][x.distal]+=x.weight;
-        }
-        auto sort_unique=[&]() {
-            std::sort(vertices.begin(),vertices.end(),[&](int a,int b){return nodes[a].tin<nodes[b].tin;});
-            vertices.erase(std::unique(vertices.begin(),vertices.end()),vertices.end());
-        };
-        sort_unique(); size_t count=vertices.size();
-        for(size_t i=1;i<count;++i)vertices.push_back(lca(vertices[i-1],vertices[i]));
-        sort_unique();
-        std::vector<VirtualNode> vt;
-        std::vector<int> stack;
-        for(int v:vertices) {
-            int idx=static_cast<int>(vt.size()); vt.push_back({{v,nodes[v].depth}});
-            auto m=vertex_mass.find(v); if(m!=vertex_mass.end())vt[idx].mass=m->second;
-            while(!stack.empty() && !ancestor(vt[stack.back()].loc.anchor,v))stack.pop_back();
-            if(!stack.empty()) {
-                int parent=stack.back(); auto it=interiors.find(v);
-                if(it!=interiors.end()) {
-                    // Merge only identical original distal coordinates. Distinct
-                    // inputs that collapse at root-depth precision are errors.
-                    const auto& ps=it->second;
-                    for(auto p=ps.rbegin();p!=ps.rend();++p) {
-                        Real depth=nodes[v].depth-p->first;
-                        if (!(depth>vt[parent].loc.depth && depth<nodes[v].depth))
-                            throw std::invalid_argument("Placement coordinate dynamic range exceeds index precision");
-                        int next=static_cast<int>(vt.size()); vt.push_back({{v,depth}});
-                        vt[next].mass=p->second;
-                        vt[parent].children.push_back(next); parent=next;
-                    }
-                }
-                vt[parent].children.push_back(idx);
-            }
-            stack.push_back(idx);
-        }
-        std::vector<int> order{0};
-        for(size_t i=0;i<order.size();++i)for(int c:vt[order[i]].children)order.push_back(c);
+        auto tree=build_virtual_tree(points,begin,end);
+        auto& vt=tree.nodes; auto& order=tree.order;
         auto built = profile ? Clock::now() : Clock::time_point{};
-        for(auto& v:vt)v.own=v.mass;
         for(auto it=order.rbegin();it!=order.rend();++it) {
             int u=*it;
             for(int v:vt[u].children) {
@@ -354,6 +386,126 @@ struct FrechetTreeIndex::Impl {
         }
         return result;
     }
+    FrechetResult exponential_mode(const std::vector<Point>& points,size_t begin,size_t end,
+                                   Id queries,Real alpha,bool profile) const {
+        using Clock=std::chrono::steady_clock;
+        auto started=profile?Clock::now():Clock::time_point{};
+        if(end-begin==1) {
+            auto result=solve(points,begin,end,queries,profile);
+            result.kernel_score=1; result.kernel_tie_count=1;
+            result.kernel_tie_tolerance=64*std::numeric_limits<Real>::epsilon();
+            return result;
+        }
+        Real scale=0;
+        for(size_t i=begin;i<end;++i)scale=std::max(scale,points[i].weight);
+        auto tree=build_virtual_tree(points,begin,end,scale);
+        auto& vt=tree.nodes; auto& order=tree.order;
+        auto built=profile?Clock::now():Clock::time_point{};
+        size_t count=vt.size(), support_count=0; int support=-1;
+        Sum total;
+        for(size_t i=0;i<count;++i) {
+            total.add(vt[i].own);
+            if(vt[i].own>0){++support_count; support=static_cast<int>(i);}
+        }
+        Real W=total.get();
+        std::vector<Real> down(count),up(count),attenuation(count),scores(count);
+        for(auto it=order.rbegin();it!=order.rend();++it) {
+            int u=*it; Sum sum; sum.add(vt[u].own);
+            for(int v:vt[u].children) {
+                Sum length_sum;
+                length_sum.add(distance(vt[u].loc.anchor,vt[v].loc.anchor));
+                length_sum.add(vt[u].loc.anchor_distal);length_sum.add(-vt[v].loc.anchor_distal);
+                Real length=length_sum.get();
+                if(length<0)throw std::runtime_error("Negative virtual segment length");
+                attenuation[v]=std::exp(-alpha*length);
+                sum.add(attenuation[v]*down[v]);
+            }
+            down[u]=sum.get();
+        }
+        Real maximum=0;
+        for(int u:order) {
+            const auto& cs=vt[u].children; size_t n=cs.size();
+            std::vector<Real> suffix(n+1); Sum tail;
+            for(size_t i=n;i>0;--i){tail.add(attenuation[cs[i-1]]*down[cs[i-1]]);suffix[i-1]=tail.get();}
+            Sum score; score.add(down[u]);score.add(up[u]);scores[u]=score.get();
+            maximum=std::max(maximum,scores[u]);
+            Sum prefix; prefix.add(up[u]);prefix.add(vt[u].own);
+            for(size_t i=0;i<n;++i) {
+                int v=cs[i]; Sum outside;outside.add(prefix.get());outside.add(suffix[i+1]);
+                up[v]=attenuation[v]*outside.get();
+                prefix.add(attenuation[v]*down[v]);
+            }
+        }
+        // Compare every candidate with the numerical maximum, never a chain of ties.
+        Real tolerance=64*std::numeric_limits<Real>::epsilon();
+        int winner=-1; size_t ties=0;
+        auto key=[&](int v){return std::make_pair(edges[vt[v].original_edge].id,vt[v].original_distal);};
+        if(support_count==1){winner=support;ties=1;}
+        else for(size_t i=0;i<count;++i)if(maximum-scores[i]<=tolerance*W) {
+            ++ties;
+            if(winner<0 || key(static_cast<int>(i))<key(winner))winner=static_cast<int>(i);
+        }
+        if(winner<0 || !(maximum>0))throw std::runtime_error("Invalid exponential mode score");
+        auto optimized=profile?Clock::now():Clock::time_point{};
+        // All candidates already have canonical vertex or original observed coordinates.
+        int edge=vt[winner].original_edge; Real distal=vt[winner].original_distal;
+        auto located=profile?Clock::now():Clock::time_point{};
+        Sum kernel,mean,mse,weight;
+        bool mean_overflow=false,mse_overflow=false;
+        for(size_t i=begin;i<end;++i) {
+            Real w=(points[i].weight/scale)/W;
+            Real d=point_distance(edge,distal,points[i].edge,points[i].distal);
+            weight.add(w); kernel.add(w*std::exp(-alpha*d));
+            if(std::isfinite(w*d))mean.add(w*d);else mean_overflow=true;
+            if(std::isfinite(w*d*d))mse.add(w*d*d);else mse_overflow=true;
+        }
+        Real normalized=kernel.get()/weight.get();
+        Real check_tolerance=std::max(Real(1e-12),256*std::numeric_limits<Real>::epsilon()*count);
+        if(!std::isfinite(normalized) || normalized<=0 || normalized>1+check_tolerance ||
+           std::abs(normalized-scores[winner]/W)>check_tolerance)
+            throw std::runtime_error("Exponential mode direct-score consistency check failed");
+        // Optional comparison diagnostics must not invalidate a bounded kernel score.
+        auto diagnostic=[](Real value,bool overflow) {
+            return overflow || !std::isfinite(value) || value>std::numeric_limits<double>::max()
+                ? std::numeric_limits<double>::infinity() : static_cast<double>(value);
+        };
+        FrechetResult result{edges[edge].id,static_cast<double>(distal),
+            diagnostic(mse.get()/weight.get(),mse_overflow),diagnostic(mean.get()/weight.get(),mean_overflow),
+            static_cast<size_t>(queries),end-begin};
+        result.kernel_score=static_cast<double>(std::min(Real(1),normalized));
+        result.kernel_tie_count=ties;result.kernel_tie_tolerance=static_cast<double>(tolerance);
+        if(profile) {
+            result.virtual_tree_seconds=std::chrono::duration<double>(built-started).count();
+            result.moment_seconds=std::chrono::duration<double>(optimized-built).count();
+            result.lookup_seconds=std::chrono::duration<double>(located-optimized).count();
+            result.verification_seconds=std::chrono::duration<double>(Clock::now()-located).count();
+        }
+        return result;
+    }
+
+    std::vector<FrechetResult> batch(const std::vector<Id>& ids,const std::vector<double>& distal,
+        const std::vector<double>& weights,const std::vector<Id>& offsets,const std::vector<Id>& queries,
+        int threads,bool profile,Real kernel_alpha=0) const {
+        if(threads<=0)throw std::invalid_argument("num_threads must be positive");
+        if(ids.size()!=distal.size() || ids.size()!=weights.size() || offsets.size()!=queries.size()+1 || offsets.empty() || offsets.front()!=0 || offsets.back()!=ids.size())throw std::invalid_argument("Invalid batch buffers or offsets");
+        std::vector<Point> points; points.reserve(ids.size());
+        for(size_t i=0;i<ids.size();++i) {
+            points.push_back(point(ids[i],distal[i],weights[i]));
+        }
+        for(size_t i=0;i<queries.size();++i)if(!queries[i] || offsets[i]>=offsets[i+1])throw std::invalid_argument("Empty consensus group");
+        std::vector<FrechetResult> results(queries.size()); std::vector<std::string> errors(queries.size());
+        if(queries.empty())return results;
+        int workers=static_cast<int>(std::min<size_t>(threads,queries.size()));
+        #pragma omp parallel for num_threads(workers) schedule(dynamic)
+        for(size_t i=0;i<queries.size();++i) {
+            try { results[i]=(kernel_alpha>0 ? exponential_mode(points,offsets[i],offsets[i+1],queries[i],kernel_alpha,profile) : solve(points,offsets[i],offsets[i+1],queries[i],profile)); }
+            catch(const std::exception& e) { errors[i]=e.what(); }
+            catch(...) { errors[i]="Unknown solver error"; }
+        }
+        for(size_t i=0;i<errors.size();++i)if(!errors[i].empty())throw std::runtime_error("Consensus group "+std::to_string(i)+": "+errors[i]);
+        return results;
+    }
+
 };
 
 FrechetTreeIndex::FrechetTreeIndex(const std::string& tree):impl(std::make_shared<Impl>(tree)){}
@@ -364,24 +516,15 @@ std::string FrechetTreeIndex::edge_label(Id id) const {
 }
 double FrechetTreeIndex::edge_length(Id id) const { return impl->edges[impl->edge_index(id)].length; }
 std::vector<FrechetResult> FrechetTreeIndex::solve_batch(const std::vector<Id>& ids,const std::vector<double>& distal,const std::vector<double>& weights,const std::vector<Id>& offsets,const std::vector<Id>& queries,int threads,bool profile) const {
-    if(threads<=0)throw std::invalid_argument("num_threads must be positive");
-    if(ids.size()!=distal.size() || ids.size()!=weights.size() || offsets.size()!=queries.size()+1 || offsets.empty() || offsets.front()!=0 || offsets.back()!=ids.size())throw std::invalid_argument("Invalid batch buffers or offsets");
-    std::vector<Point> points; points.reserve(ids.size());
-    for(size_t i=0;i<ids.size();++i) {
-        points.push_back(impl->point(ids[i],distal[i],weights[i]));
-    }
-    for(size_t i=0;i<queries.size();++i)if(!queries[i] || offsets[i]>=offsets[i+1])throw std::invalid_argument("Empty consensus group");
-    std::vector<FrechetResult> results(queries.size()); std::vector<std::string> errors(queries.size());
-    if(queries.empty())return results;
-    int workers=static_cast<int>(std::min<size_t>(threads,queries.size()));
-    #pragma omp parallel for num_threads(workers) schedule(dynamic)
-    for(size_t i=0;i<queries.size();++i) {
-        try { results[i]=impl->solve(points,offsets[i],offsets[i+1],queries[i],profile); }
-        catch(const std::exception& e) { errors[i]=e.what(); }
-        catch(...) { errors[i]="Unknown solver error"; }
-    }
-    for(size_t i=0;i<errors.size();++i)if(!errors[i].empty())throw std::runtime_error("Consensus group "+std::to_string(i)+": "+errors[i]);
-    return results;
+    return impl->batch(ids,distal,weights,offsets,queries,threads,profile);
+}
+
+std::vector<FrechetResult> FrechetTreeIndex::exponential_mode_batch(
+    const std::vector<Id>& ids,const std::vector<double>& distal,const std::vector<double>& weights,
+    const std::vector<Id>& offsets,const std::vector<Id>& queries,double kernel_alpha,int threads,bool profile) const {
+    if(!std::isfinite(kernel_alpha) || kernel_alpha<=0)
+        throw std::invalid_argument("kernel_alpha must be finite and positive");
+    return impl->batch(ids,distal,weights,offsets,queries,threads,profile,kernel_alpha);
 }
 
 

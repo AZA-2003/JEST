@@ -1,4 +1,4 @@
-"""Validated equal-query Frechet consensus; all geometry stays in the C++ index.
+"""Validated equal-query indexed consensus; geometry stays in the C++ index.
 
 Each distinct n/nm name is one query. nm abundance is preserved in per-record
 output but does not affect the objective. A reusable FrechetTreeIndex is also
@@ -26,6 +26,20 @@ def _real(value, label):
     if not math.isfinite(value):
         raise ValueError(f"{label} must be finite")
     return value
+
+
+def _validate_method(method, kernel_alpha):
+    if method not in ("frechet", "exponential_mode"):
+        raise ValueError("Indexed consensus method must be 'frechet' or 'exponential_mode'")
+    if method == "exponential_mode":
+        if kernel_alpha is None:
+            raise ValueError("exponential_mode requires an explicit kernel_alpha")
+        kernel_alpha = _real(kernel_alpha, "kernel_alpha")
+        if kernel_alpha <= 0:
+            raise ValueError("kernel_alpha must be finite and positive")
+    elif kernel_alpha is not None:
+        raise ValueError("kernel_alpha is only supported with method='exponential_mode'")
+    return kernel_alpha
 
 
 def _edge_id(value):
@@ -69,7 +83,7 @@ def _membership(names, genome_map):
         with open(genome_map, newline="") as stream:
             for number, row in enumerate(csv.reader(stream, delimiter="\t"), 1):
                 if len(row) > 2:
-                    raise ValueError("Feature-weighted mapping conflicts with equal-query Frechet weighting")
+                    raise ValueError("Feature-weighted mapping conflicts with equal-query consensus weighting")
                 if len(row) != 2 or not all(row):
                     raise ValueError(f"Mapping line {number} must contain query<TAB>group")
                 if row[0] in mapping and mapping[row[0]] != row[1]:
@@ -107,7 +121,7 @@ def _prepare(document, num_threads):
         raise ValueError("fields must be a list of unique field names")
     required = {"edge_num", "like_weight_ratio", "distal_length"}
     if not required <= set(fields):
-        raise ValueError("Frechet consensus requires edge_num, like_weight_ratio, and distal_length")
+        raise ValueError("Indexed consensus requires edge_num, like_weight_ratio, and distal_length")
     columns = {field: i for i, field in enumerate(fields)}
     records = document.get("placements")
     if not isinstance(records, list) or not records:
@@ -161,14 +175,15 @@ def _prepare(document, num_threads):
     return index, distributions, names_by_record
 
 
-def consensus(document, *, grouped=False, genome_map="", num_threads=1):
+def consensus(document, *, grouped=False, genome_map="", num_threads=1, method="frechet", kernel_alpha=None):
     """Compute consensus with one immutable reference index per input batch."""
+    kernel_alpha = _validate_method(method, kernel_alpha)
     prepared = _prepare(document, num_threads)
     return _consensus_prepared(document, prepared, grouped=grouped,
-                               genome_map=genome_map, num_threads=num_threads)
+                               genome_map=genome_map, num_threads=num_threads, method=method, kernel_alpha=kernel_alpha)
 
 
-def _consensus_prepared(document, prepared, *, grouped, genome_map="", num_threads=1, groups=None):
+def _consensus_prepared(document, prepared, *, grouped, genome_map="", num_threads=1, groups=None, method="frechet", kernel_alpha=None):
     index, distributions, names_by_record = prepared
     records = document["placements"]
     columns = {field: i for i, field in enumerate(document["fields"])}
@@ -195,7 +210,10 @@ def _consensus_prepared(document, prepared, *, grouped, genome_map="", num_threa
                 pendant_terms.append((weight / len(members)) * pendant)
         offsets.append(len(edges))
         pendants.append(math.fsum(pendant_terms))
-    solved = index.solve_batch(edges, distals, weights, offsets, counts, num_threads)
+    if method == "exponential_mode":
+        solved = index.exponential_mode_batch(edges, distals, weights, offsets, counts, kernel_alpha, num_threads)
+    else:
+        solved = index.solve_batch(edges, distals, weights, offsets, counts, num_threads)
     output, diagnostics = [], []
     for j, (group, members) in enumerate(groups.items()):
         result = solved[j]
@@ -212,24 +230,36 @@ def _consensus_prepared(document, prepared, *, grouped, genome_map="", num_threa
             "query_count": result.query_count,
             "positive_row_count": result.positive_row_count if grouped else
                 result.positive_row_count * len(names_by_record[group]),
-            "mean_squared_distance": result.mean_squared_distance,
-            "root_mean_squared_distance": math.sqrt(result.mean_squared_distance),
-            "mean_distance": result.mean_distance,
+            "mean_squared_distance": result.mean_squared_distance if math.isfinite(result.mean_squared_distance) else None,
+            "root_mean_squared_distance": math.sqrt(result.mean_squared_distance) if math.isfinite(result.mean_squared_distance) else None,
+            "mean_distance": result.mean_distance if math.isfinite(result.mean_distance) else None,
         })
+        if method == "exponential_mode":
+            diagnostics[-1].update(kernel_alpha=kernel_alpha, kernel_score=result.kernel_score,
+                                   kernel_tie_count=result.kernel_tie_count,
+                                   kernel_tie_tolerance=result.kernel_tie_tolerance)
     result_document = deepcopy(document)
     result_document["placements"] = output
     result_document["fields"] = FIELDS.copy()
     metadata = result_document.setdefault("metadata", {})
     if not isinstance(metadata, dict):
         raise ValueError("jplace metadata must be an object")
-    metadata["frechet"] = {
-        "method": "frechet", "weighting": "equal-query; within-query normalized placement weights",
+    metadata.pop("frechet" if method == "exponential_mode" else "exponential_mode", None)
+    metadata[method] = {
+        "method": method, "weighting": "equal-query; within-query normalized placement weights",
         "names": "each distinct n/nm name is a query; nm abundance ignored for weighting",
         "coordinates": "distal from child; smallest incident original edge ID at contracted vertices",
         "pendant_length": "equal-query mixture mean" if "pendant_length" in columns else "zero placeholder (input unavailable)",
         "likelihood": "zero placeholder; not a sequence likelihood estimate",
         "diagnostics": diagnostics,
     }
+    if method == "exponential_mode":
+        metadata[method].update(
+            kernel_alpha=kernel_alpha,
+            objective="maximize normalized sum of weight * exp(-kernel_alpha * attachment_distance)",
+            score_definition="expected exponential proximity; not a normalized tree density or sequence likelihood",
+            tie_policy="compare all virtual candidates to numerical maximum within 64 * long-double epsilon * total mass; choose smallest (canonical edge ID, distal length); single-point support returns that point",
+            diagnostics_role="mean distance and MSE are comparison diagnostics, not optimized scores")
     return result_document, diagnostics
 
 
@@ -237,15 +267,18 @@ def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
         edge_error, genome_map="", multi_copy=False, filter_queries=False,
         return_diagnostics=False, pre_filter=False, post_filter=False,
         pre_alpha=None, post_alpha=None, alpha=0.05, trials=1000,
-        random_placements=10, random_seed=48, random_dist_path=""):
+        random_placements=10, random_seed=48, random_dist_path="", method="frechet", kernel_alpha=None):
 
+    kernel_alpha = _validate_method(method, kernel_alpha)
     if multi_copy:
-        raise ValueError("multi_copy conflicts with equal-query Frechet weighting")
+        raise ValueError("multi_copy conflicts with equal-query consensus weighting")
     post_filter = post_filter or filter_queries
+    if method == "exponential_mode" and (pre_filter or post_filter or pre_alpha is not None or post_alpha is not None or random_dist_path):
+        raise ValueError("Filtering is not yet calibrated for exponential_mode; pre/post filters and null-distribution inputs are unsupported")
     if (pre_filter or post_filter) and not grouped:
         raise ValueError("Pre/post consensus filtering requires grouped consensus")
     if edge_error:
-        raise ValueError("Frechet diagnostics use continuous branch-length distance, not edge-count error")
+        raise ValueError("Consensus diagnostics use continuous branch-length distance, not edge-count error")
     with open(path) as stream:
         document = json.load(stream)
     filtering = None
@@ -260,7 +293,7 @@ def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
             trials=trials, random_placements=random_placements,
             random_seed=random_seed, random_dist_path=random_dist_path)
     else:
-        result, diagnostics = consensus(document, grouped=grouped, genome_map=genome_map, num_threads=num_threads)
+        result, diagnostics = consensus(document, grouped=grouped, genome_map=genome_map, num_threads=num_threads, method=method, kernel_alpha=kernel_alpha)
     prefix = Path(path).stem
     kind = "subgenome" if grouped else "placement"
     if write_file or get_error:
@@ -280,9 +313,11 @@ def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
         with open(Path(dest_path) / f"{prefix}_{kind}_consensus.jplace", "w") as stream:
             json.dump(result, stream, indent=2, allow_nan=False)
     if get_error:
-        with open(Path(dest_path) / f"{prefix}_{kind}_frechet.tsv", "w", newline="") as stream:
+        with open(Path(dest_path) / f"{prefix}_{kind}_{method}.tsv", "w", newline="") as stream:
             diagnostic_fields = ["group", "consensus_label", "edge_num", "distal_length", "query_count",
                                  "positive_row_count", "mean_squared_distance", "root_mean_squared_distance", "mean_distance"]
+            if method == "exponential_mode":
+                diagnostic_fields += ["kernel_alpha", "kernel_score", "kernel_tie_count", "kernel_tie_tolerance"]
             writer = csv.DictWriter(stream, fieldnames=diagnostic_fields, delimiter="\t")
             writer.writeheader()
             writer.writerows(diagnostics)
