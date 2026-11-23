@@ -94,8 +94,8 @@ def _membership(names, genome_map):
     return mapping
 
 
-def consensus(document, *, grouped=False, genome_map="", num_threads=1):
-    """Return (jplace document, diagnostics), retaining deterministic input order.
+def _prepare(document, num_threads):
+    """Return the shared index, normalized distributions, and per-record names.
 
     Validation and normalization occur before parallel solving. The C++ index
     is constructed once and can be reused across numeric batches directly.
@@ -158,17 +158,31 @@ def consensus(document, *, grouped=False, genome_map="", num_threads=1):
         if any(row[2] == 0 for row in normalized):
             raise ValueError("Placement weight dynamic range exceeds double precision")
         distributions.append(normalized)
-    flat_names = [name for names in names_by_record for name in names]
-    mapping = _membership(flat_names, genome_map) if grouped else None
-    groups = {}
-    if grouped:
-        for i, names in enumerate(names_by_record):
-            for name in names:
-                groups.setdefault(mapping[name], []).append(i)
-    else:
-        # Names in one record have identical distributions: solve once and
-        # preserve the entire n/nm record, including multiplicities.
-        groups = {i: [i] for i in range(len(records))}
+    return index, distributions, names_by_record
+
+
+def consensus(document, *, grouped=False, genome_map="", num_threads=1):
+    """Compute consensus with one immutable reference index per input batch."""
+    prepared = _prepare(document, num_threads)
+    return _consensus_prepared(document, prepared, grouped=grouped,
+                               genome_map=genome_map, num_threads=num_threads)
+
+
+def _consensus_prepared(document, prepared, *, grouped, genome_map="", num_threads=1, groups=None):
+    index, distributions, names_by_record = prepared
+    records = document["placements"]
+    columns = {field: i for i, field in enumerate(document["fields"])}
+    if groups is None:
+        flat_names = [name for names in names_by_record for name in names]
+        mapping = _membership(flat_names, genome_map) if grouped else None
+        groups = {}
+        if grouped:
+            for i, names in enumerate(names_by_record):
+                for name in names:
+                    groups.setdefault(mapping[name], []).append(i)
+        else:
+            # Identical distributions in one multi-name record are solved once.
+            groups = {i: [i] for i in range(len(records))}
     edges, distals, weights, offsets, counts, pendants = [], [], [], [0], [], []
     for members in groups.values():
         counts.append(len(members) if grouped else len(names_by_record[members[0]]))
@@ -221,16 +235,32 @@ def consensus(document, *, grouped=False, genome_map="", num_threads=1):
 
 def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
         edge_error, genome_map="", multi_copy=False, filter_queries=False,
-        return_diagnostics=False):
+        return_diagnostics=False, pre_filter=False, post_filter=False,
+        pre_alpha=None, post_alpha=None, alpha=0.05, trials=1000,
+        random_placements=10, random_seed=48, random_dist_path=""):
+
     if multi_copy:
         raise ValueError("multi_copy conflicts with equal-query Frechet weighting")
-    if filter_queries:
-        raise ValueError("Frechet consensus does not support legacy label-based post-filtering; supply prefiltered queries with filter_queries=False")
+    post_filter = post_filter or filter_queries
+    if (pre_filter or post_filter) and not grouped:
+        raise ValueError("Pre/post consensus filtering requires grouped consensus")
     if edge_error:
         raise ValueError("Frechet diagnostics use continuous branch-length distance, not edge-count error")
     with open(path) as stream:
         document = json.load(stream)
-    result, diagnostics = consensus(document, grouped=grouped, genome_map=genome_map, num_threads=num_threads)
+    filtering = None
+    remaining = before_consensus = document["placements"]
+    if pre_filter or post_filter:
+        from .frechet_filtering import filtered_consensus
+        result, diagnostics, remaining, before_consensus, filtering = filtered_consensus(
+            document, genome_map=genome_map, num_threads=num_threads,
+            pre_filter=pre_filter, post_filter=post_filter,
+            pre_alpha=alpha if pre_alpha is None else pre_alpha,
+            post_alpha=alpha if post_alpha is None else post_alpha,
+            trials=trials, random_placements=random_placements,
+            random_seed=random_seed, random_dist_path=random_dist_path)
+    else:
+        result, diagnostics = consensus(document, grouped=grouped, genome_map=genome_map, num_threads=num_threads)
     prefix = Path(path).stem
     kind = "subgenome" if grouped else "placement"
     if write_file or get_error:
@@ -251,14 +281,24 @@ def run(path, *, grouped, write_file, dest_path, num_threads, get_error,
             json.dump(result, stream, indent=2, allow_nan=False)
     if get_error:
         with open(Path(dest_path) / f"{prefix}_{kind}_frechet.tsv", "w", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(diagnostics[0]), delimiter="\t")
+            diagnostic_fields = ["group", "consensus_label", "edge_num", "distal_length", "query_count",
+                                 "positive_row_count", "mean_squared_distance", "root_mean_squared_distance", "mean_distance"]
+            writer = csv.DictWriter(stream, fieldnames=diagnostic_fields, delimiter="\t")
             writer.writeheader()
             writer.writerows(diagnostics)
+    if filtering is not None:
+        from .frechet_filtering import write_filter_outputs
+        write_filter_outputs(document, filtering, before_consensus, remaining,
+                             dest_path=dest_path, prefix=prefix,
+                             write_file=write_file, get_error=get_error)
     if return_diagnostics:
         out = {"placements": result["placements"], "diagnostics": diagnostics}
         if grouped:
-            out["remaining_placements"] = document["placements"]
+            out["remaining_placements"] = remaining
+        if filtering is not None:
+            out["filtering"] = filtering
+            out["preconsensus_placements"] = before_consensus
         return out
     if grouped:
-        return result["placements"], document["placements"]
+        return result["placements"], remaining
     return result["placements"]

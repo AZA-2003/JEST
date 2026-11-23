@@ -223,3 +223,5 @@ std::vector<std::vector<float>> find_length_sc(std::string jtree, std::string tr
 %template(UInt64Vector) std::vector<unsigned long long>;
 %include "frechet_consensus.h"
 %template(FrechetResults) std::vector<FrechetResult>;
+
+%template(FrechetPoints) std::vector<FrechetPoint>;

@@ -150,7 +150,7 @@ def test_api_and_cli(tmp_path, monkeypatch):
     assert len(remaining) == 2 and result[0]["p"][0][3] == 6
     detailed = placement_consensus(str(path), False, method="frechet", return_diagnostics=True)
     assert len(detailed["diagnostics"]) == 2
-    for kwargs in [{"filter_queries": True}, {"multi_copy": True}, {"edge_error": True}, {"num_threads": 0}]:
+    for kwargs in [{"multi_copy": True}, {"edge_error": True}, {"num_threads": 0}]:
         with pytest.raises(ValueError):
             subgenome_consensus(str(path), False, method="frechet", **kwargs)
     for method in ["oops", "Frechet"]:

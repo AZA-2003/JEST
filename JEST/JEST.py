@@ -221,7 +221,12 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
                         genome_map: Annotated[str, typer.Option("-g", "--genome-map", help = "regex pattern or file that maps subgenomes to genomes.\n Passing nothing assumes that all subgenomes belong to the same genome.", show_default = True)]= "",
                         multi_copy: Annotated[bool, typer.Option("-m", "--multi-copy", "--multi", help = "whether the subgenomes are single or multicopy.\n Multicopied genomes have their contributions to the consensus split among them.")] = False,
                         method: Annotated[str, typer.Option("--method", help="Consensus method: legacy or frechet.")] = "legacy",
-                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False):
+                        return_diagnostics: Annotated[bool, typer.Option("--return-diagnostics", help="Return Frechet diagnostics alongside placements (Python API).")] = False,
+                        pre_filter: Annotated[bool, typer.Option("--pre-filter/--no-pre-filter", help="Frechet: filter dispersion around each query's own consensus.")] = False,
+                        post_filter: Annotated[bool, typer.Option("--post-filter/--no-post-filter", help="Frechet: mark queries distant from group consensus, without refitting.")] = False,
+                        pre_alpha: Annotated[float | None, typer.Option("--pre-alpha", help="Pre-filter null percentile cutoff; defaults to alpha.")] = None,
+                        post_alpha: Annotated[float | None, typer.Option("--post-alpha", help="Post-filter null percentile cutoff; defaults to alpha.")] = None,
+                        random_seed: Annotated[int, typer.Option("--random-seed", help="Frechet filtering null-sampling seed.")] = 48):
 
     """
     Summarizes multiple subgenome (contigs, genes, etc..) placements to a single placement on the tree. 
@@ -233,7 +238,13 @@ def subgenome_consensus(jplace_path: Annotated[str, typer.Option("-i", "--in",he
         return run(jplace_path, grouped=True, write_file=write_file,
                    dest_path=dest_path, num_threads=num_threads, get_error=get_error,
                    edge_error=edge_error, return_diagnostics=return_diagnostics,
-                   genome_map=genome_map, multi_copy=multi_copy, filter_queries=filter_queries)
+                   genome_map=genome_map, multi_copy=multi_copy, filter_queries=filter_queries,
+                   pre_filter=pre_filter, post_filter=post_filter, pre_alpha=pre_alpha,
+                   post_alpha=post_alpha, alpha=alpha, trials=trials,
+                   random_placements=random_placements, random_seed=random_seed,
+                   random_dist_path=random_dist_path)
+    if pre_filter or post_filter or pre_alpha is not None or post_alpha is not None or random_seed != 48:
+        raise ValueError("The new pre/post filtering controls require method='frechet'")
     if return_diagnostics:
         raise ValueError("return_diagnostics requires method='frechet'")
 

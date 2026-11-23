@@ -4,6 +4,11 @@
 #include <string>
 #include <vector>
 
+struct FrechetPoint {
+    unsigned long long edge_num;
+    double distal_length;
+};
+
 struct FrechetResult {
     unsigned long long edge_num;
     double distal_length;
@@ -25,6 +30,16 @@ public:
     ~FrechetTreeIndex();
     std::string edge_label(unsigned long long edge_num) const;
     double edge_length(unsigned long long edge_num) const;
+    // Uniform with respect to branch length, including any positive root stem.
+    std::vector<FrechetPoint> random_points(unsigned long long count, unsigned long long seed) const;
+    std::vector<double> mean_distance_batch(
+        const std::vector<unsigned long long>& edges,
+        const std::vector<double>& distal,
+        const std::vector<double>& weights,
+        const std::vector<unsigned long long>& offsets,
+        const std::vector<unsigned long long>& reference_edges,
+        const std::vector<double>& reference_distal,
+        int threads) const;
     std::vector<FrechetResult> solve_batch(
         const std::vector<unsigned long long>& edges,
         const std::vector<double>& distal,

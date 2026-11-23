@@ -50,3 +50,9 @@ with equal total weight per query. The default remains `legacy`.
 
 See [Fréchet consensus usage, conventions, and build instructions](docs/frechet_consensus.md).
 Rebuild the SWIG extension before using the new method.
+
+For optional Fréchet subgenome filtering, use `--pre-filter` (dispersion around
+each query's own consensus) and/or `--post-filter` (distance from its group
+consensus). Both are off by default; `--pre-alpha` and `--post-alpha` control
+their separate null-percentile cutoffs. See the usage guide for scoring and
+retained-query output semantics.

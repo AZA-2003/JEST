@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <chrono>
+#include <random>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -102,6 +103,7 @@ struct FrechetTreeIndex::Impl {
     std::vector<Node> nodes;
     std::vector<Edge> edges;
     std::unordered_map<Id, int> by_id;
+    std::vector<Real> cumulative_lengths;
     std::vector<int> euler, logs;
     std::vector<std::vector<int>> rmq, ancestors;
 
@@ -139,6 +141,12 @@ struct FrechetTreeIndex::Impl {
             }
         }
         if (edges.empty()) throw std::invalid_argument("Tree has no annotated edges");
+        Real total_length = 0;
+        for (const auto& edge : edges) {
+            total_length += edge.length;
+            if (!std::isfinite(total_length)) throw std::invalid_argument("Total tree length exceeds index precision");
+            cumulative_lengths.push_back(total_length);
+        }
         // Iterative Euler tour; topological depth, never weighted depth, drives RMQ.
         std::vector<std::pair<int,size_t>> stack{{0,0}};
         int timer = 0; nodes[0].tin = timer++; nodes[0].first = 0; euler.push_back(0);
@@ -181,6 +189,15 @@ struct FrechetTreeIndex::Impl {
     }
     int edge_index(Id id) const {
         auto it=by_id.find(id); if(it==by_id.end())throw std::invalid_argument("Unknown placement edge ID: "+std::to_string(id)); return it->second;
+    }
+    Point point(Id id, double distal, double weight = 1) const {
+        int e=edge_index(id); double L=edges[e].length;
+        if (!std::isfinite(distal) || !std::isfinite(weight) || weight<=0)
+            throw std::invalid_argument("Batch weights must be positive and coordinates finite");
+        double tol=32*std::numeric_limits<double>::epsilon()*L;
+        if (distal < -tol || distal > L+tol)
+            throw std::invalid_argument("Distal length outside tree edge");
+        return {e,std::max(0.0,std::min(L,distal)),weight};
     }
     std::pair<int,Real> locate(Location loc) const {
         int v=loc.anchor;
@@ -351,11 +368,7 @@ std::vector<FrechetResult> FrechetTreeIndex::solve_batch(const std::vector<Id>& 
     if(ids.size()!=distal.size() || ids.size()!=weights.size() || offsets.size()!=queries.size()+1 || offsets.empty() || offsets.front()!=0 || offsets.back()!=ids.size())throw std::invalid_argument("Invalid batch buffers or offsets");
     std::vector<Point> points; points.reserve(ids.size());
     for(size_t i=0;i<ids.size();++i) {
-        int e=impl->edge_index(ids[i]); double L=impl->edges[e].length,d=distal[i];
-        if(!std::isfinite(d) || !std::isfinite(weights[i]) || weights[i]<=0)throw std::invalid_argument("Batch weights must be positive and coordinates finite");
-        double tol=32*std::numeric_limits<double>::epsilon()*L;
-        if(d < -tol || d>L+tol)throw std::invalid_argument("Distal length outside tree edge");
-        d=std::max(0.0,std::min(L,d)); points.push_back({e,d,weights[i]});
+        points.push_back(impl->point(ids[i],distal[i],weights[i]));
     }
     for(size_t i=0;i<queries.size();++i)if(!queries[i] || offsets[i]>=offsets[i+1])throw std::invalid_argument("Empty consensus group");
     std::vector<FrechetResult> results(queries.size()); std::vector<std::string> errors(queries.size());
@@ -369,4 +382,63 @@ std::vector<FrechetResult> FrechetTreeIndex::solve_batch(const std::vector<Id>& 
     }
     for(size_t i=0;i<errors.size();++i)if(!errors[i].empty())throw std::runtime_error("Consensus group "+std::to_string(i)+": "+errors[i]);
     return results;
+}
+
+
+std::vector<FrechetPoint> FrechetTreeIndex::random_points(Id count, Id seed) const {
+    std::mt19937_64 engine(seed);
+    std::uniform_real_distribution<double> unit(0,1);
+    std::vector<FrechetPoint> result; result.reserve(count);
+    Real total=impl->cumulative_lengths.back();
+    for(size_t i=0;i<count;++i) {
+        if(total==0) {
+            result.push_back({impl->nodes[0].canonical,impl->nodes[0].canonical_distal});
+            continue;
+        }
+        Real target=unit(engine)*total;
+        // Roundoff cannot turn an endpoint sample into an invalid edge index.
+        if(target>=total)target=std::nextafter(total,Real(0));
+        size_t e=std::upper_bound(impl->cumulative_lengths.begin(),impl->cumulative_lengths.end(),target)-impl->cumulative_lengths.begin();
+        const auto& edge=impl->edges[e];
+        result.push_back({edge.id,unit(engine)*edge.length});
+    }
+    return result;
+}
+
+std::vector<double> FrechetTreeIndex::mean_distance_batch(
+    const std::vector<Id>& ids,const std::vector<double>& distal,
+    const std::vector<double>& weights,const std::vector<Id>& offsets,
+    const std::vector<Id>& reference_edges,const std::vector<double>& reference_distal,
+    int threads) const {
+    size_t groups=reference_edges.size();
+    if(threads<=0)throw std::invalid_argument("num_threads must be positive");
+    if(ids.size()!=distal.size() || ids.size()!=weights.size() || reference_distal.size()!=groups ||
+       offsets.size()!=groups+1 || offsets.empty() || offsets.front()!=0 || offsets.back()!=ids.size())
+        throw std::invalid_argument("Invalid distance batch buffers or offsets");
+    for(size_t i=0;i<groups;++i)if(offsets[i]>=offsets[i+1])throw std::invalid_argument("Empty distance group");
+    std::vector<Point> points,refs;
+    points.reserve(ids.size()); refs.reserve(groups);
+    for(size_t i=0;i<ids.size();++i)points.push_back(impl->point(ids[i],distal[i],weights[i]));
+    for(size_t i=0;i<groups;++i)refs.push_back(impl->point(reference_edges[i],reference_distal[i]));
+    std::vector<double> result(groups);
+    std::vector<std::string> errors(groups);
+    if(!groups)return result;
+    int workers=static_cast<int>(std::min<size_t>(threads,groups));
+    #pragma omp parallel for num_threads(workers) schedule(dynamic)
+    for(size_t i=0;i<groups;++i) {
+        try {
+            Real total=0,first=0;
+            for(size_t j=offsets[i];j<offsets[i+1];++j) {
+                first+=points[j].weight*impl->point_distance(refs[i].edge,refs[i].distal,points[j].edge,points[j].distal);
+                total+=points[j].weight;
+            }
+            Real value=first/total;
+            if(!std::isfinite(total) || !std::isfinite(value) || value>std::numeric_limits<double>::max())
+                throw std::runtime_error("Mean distance exceeds accumulator range");
+            result[i]=static_cast<double>(value);
+        } catch(const std::exception& e) { errors[i]=e.what(); }
+        catch(...) { errors[i]="Unknown distance evaluation error"; }
+    }
+    for(size_t i=0;i<groups;++i)if(!errors[i].empty())throw std::runtime_error(errors[i]);
+    return result;
 }

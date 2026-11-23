@@ -75,12 +75,103 @@ returned in first-seen order. With no mapping, all queries form one group.
 they conflict with equal-query weighting. `edge_error=True` is also rejected:
 the new diagnostics measure continuous branch-length distance.
 
-`filter_queries=False` bypasses **all** uncertainty and random-distribution
-code on this path. `filter_queries=True` is currently rejected because the
-legacy option includes post-filtering against node labels, which loses the
-consensus coordinate. Supply an explicitly prefiltered jplace instead; weights
-and group query counts are recomputed from its retained names. No legacy
-uncertainty statistic is silently replaced with MSE.
+## Optional pre- and post-consensus filtering
+
+Both stages are **off by default** and independently controlled on
+`subgenome_consensus(method="frechet")`:
+
+```python
+result = subgenome_consensus(
+    "input.jplace", True, dest_path="results", method="frechet",
+    pre_filter=True, post_filter=True,
+    pre_alpha=0.05, post_alpha=0.05,
+    trials=1000, random_placements=10, random_seed=48,
+    return_diagnostics=True,
+)
+print(result["filtering"]["pre_filtered_queries"])
+print(result["filtering"]["post_filtered_queries"])
+```
+
+```bash
+JEST subgenome-consensus -i input.jplace -w -o results --method frechet \
+    --pre-filter --post-filter --pre-alpha 0.05 --post-alpha 0.05 \
+    --trials 1000 --random-placements 10 --random-seed 48
+```
+
+1. **Pre-consensus dispersion:** compute each subgenome's own Fréchet attachment,
+   then its normalized placement-weighted **mean distance** from that point.
+   Compare this score with a null distribution computed by fitting a separate
+   Fréchet point to every random trial. Remove flagged queries before the group
+   consensus, then recalculate query counts and give every retained name equal
+   total weight. This does not replace retained distributions with their centers.
+2. **Post-consensus distance:** compute each retained query's normalized
+   placement-weighted mean distance to its group's exact consensus attachment.
+   Calibrate against random trials measured from that **same fixed group point**.
+   Flag distant names and exclude them from the returned retained-query list.
+   The already-computed consensus is **not refitted**. Its `query_count`, position,
+   pendant convention, and objective describe the pre-filtered input population.
+
+Mean distance is in branch-length units, distinct from the MSE optimized by
+Fréchet consensus. Pendant lengths never affect filtering. Post-filter scores
+use the entire placement distribution, not just its per-query center.
+
+A null trial has `random_placements` equally weighted, independent attachments,
+uniform with respect to total branch length, including a positive root stem.
+This is a configurable reference population, not a null conditioned on each
+query's particular row count or weight profile. Sampling occurs once before
+parallel work. The two stages reuse the sampled attachments but compute
+**different score distributions**: pre-filter trials fit their own centers,
+whereas each post-filter group uses its fixed consensus as reference. The seed
+makes repeated runs deterministic with the same build, regardless of thread
+count. A zero-length tree has a degenerate zero-score null and retains zero-score
+queries. Pre-filtering requires at least two random placements; trials and
+thread counts must be positive.
+
+The reported `null_percentile` is the fraction of null scores **strictly less**
+than the observed score. A query is filtered when that percentile exceeds the
+stage's alpha. Ties are retained conservatively. This preserves the legacy
+lower-tail selection direction, without its interpolation and label-distance
+limitations. A smaller alpha is stricter: 0.05 retains only scores at or below
+the lower 5% of the random reference population, not everything below its 95th
+percentile. These ranks are not upper-tail significance p-values. Each alpha
+must lie in [0, 1]; percentile resolution is 1 / trials. `pre_alpha` and
+`post_alpha` independently default to the existing `alpha` argument (0.05).
+
+`--no-pre-filter` and `--no-post-filter` disable their respective stages.
+The existing `filter_queries=True` / `--filter` is an alias for enabling the
+Fréchet post-filter only; it does not implicitly enable the pre-filter. With
+both stages disabled, no null generation or filtering runs. Legacy-method calls
+retain their prior behavior; the new stage-specific controls require
+`method="frechet"`.
+
+Legacy `random_dist_path` files contain scores calibrated for a different
+reference statistic. They are explicitly rejected when Fréchet filtering is
+enabled; omit that argument to generate the new stage-specific nulls.
+
+When `write_file` or `get_error` is enabled, each enabled stage writes
+`<input>_preconsensus_filter.tsv` or `<input>_postconsensus_filter.tsv`. These
+contain query and group names, mean distance, null percentile, alpha, the
+filter decision, and the reference edge/coordinate. With `write_file=True`,
+`<input>_preconsensus_filtered.jplace` and/or
+`<input>_postconsensus_filtered.jplace` contain retained **input** placements
+with their original field schema. The ordinary consensus jplace and
+consensus-label TSV are also written as before.
+
+`return_diagnostics=True` additionally returns `filtering` (configuration,
+per-query scores, filtered name lists, and omitted groups) and
+`preconsensus_placements`. `remaining_placements` reflects both enabled stages.
+Without rich diagnostics, the usual `(consensus_placements, remaining_placements)`
+pair is preserved. Filtering metadata is also saved in the output jplace.
+Each name in `n` or `nm` is handled independently; multiplicities are preserved
+when only part of a record remains. Groups emptied by pre-filtering are omitted
+and listed explicitly; if all groups are removed, outputs contain empty lists
+and TSV headers rather than a fabricated attachment.
+
+All phases reuse one immutable tree index. Null generation uses O(trials ×
+random_placements) buffers. Pre-filtering adds per-query Fréchet solves plus
+trial Fréchet solves; post-filtering adds O(k) observed distance evaluation and
+O(trials × random_placements) distance evaluation per retained group. Only one
+group's post-filter null-score array is resident at a time.
 
 ## Coordinates, validation, and output
 
@@ -137,7 +228,7 @@ PYTHON=python3 SWIG=swig CXX=clang++ OPENMP_PREFIX="$(brew --prefix libomp)" \
     bash JEST/compile_CTree.sh
 
 python -m pip install .
-python -m pytest test/test_frechet.py -q
+python -m pytest test/test_frechet.py test/test_frechet_filtering.py -q
 PYTHONPATH=. python test/benchmark_frechet.py --nodes 100000
 ```
 
@@ -151,7 +242,10 @@ Tests cover the analytic examples, 2,000 seeded random-tree comparisons against
 an exhaustive original-segment oracle, root/subdivision invariance, zero edges,
 positive root stems, deep chains, arbitrary field order, large integer IDs,
 sub-1e-4 coordinates, grouping, validation, serial/parallel agreement, API/CLI
-routing, and legacy wrapper compatibility.
+routing, and legacy wrapper compatibility. Filtering tests cover independent
+stage controls, analytic dispersion scores, stage-specific null calibration,
+partial multi-name retention, omitted groups, index reuse, deterministic
+parallel execution, CLI outputs, and disabled-filter bypass.
 
 ## Index lifetime and complexity
 
